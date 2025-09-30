@@ -1,0 +1,19 @@
+[package]
+name = "rmw-zenoh-mcap-writer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+futures = "0.3.26"
+tokio = { version = "1.45.1", default-features = false } # Default features are disabled due to some crates' requirements
+tracing = "0.1.41"
+zenoh = { version = "1.5.1", features = [
+  "plugins",
+  "internal",
+  "unstable",
+  "shared-memory",
+] }
+zenoh-plugin-rest = { version = "1.5.1", default-features = false, features = [
+  "static_plugin",
+]  }
