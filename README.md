@@ -15,13 +15,6 @@ Here are some parameters support in the selector:
 * `topic`: The recorded ROS topic. It will record all topics if not specified.
 * `domain`: The ROS domain ID. It's 0 if not sepecified.
 
-For examples:
-
-```bash
-@mcap_writer/start?domain=123&topic=chatter'
-@mcap_writer/stop
-```
-
 ### HTTP API
 
 `rmw-zenoh-mcap-writer` loads the REST plugin, so we can send HTTP request to start / stop recording.
