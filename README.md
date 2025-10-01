@@ -4,47 +4,47 @@ The MCAP writer is able to subscribe to all or a subset of ROS 2 topics and writ
 
 ## API design
 
-When `rmw-zenoh-mcap-writer` is running, we can send an API request to start or stop recording.
-You can use either the Zenoh API or the HTTP API.
+When `rmw-zenoh-mcap-writer` is running, we can send an Zenoh Query to start or stop recording.
+There are two kinds of Zenoh selectors for different purposes:
 
-* key: `@mcap/writer`
-* value is the JSON format
-  * The topic and domain fields are optional field.
+* `@mcap_writer/start`: Start to record the ROS 2 topic.
+* `@mcap_writer/stop`: Stop recording the ROS 2 topic.
 
-```json
-{
-    // The recording status: can be "start" or "stop"
-    "status": "start",
-    // (optional) The recorded ROS topic: all topic by default
-    "topic": "chatter",
-    // (optional) The ROS domain ID: 0 by default
-    "domain": "2"
-}
+Here are some parameters support in the selector:
+
+* `topic`: The recorded ROS topic. It will record all topics if not specified.
+* `domain`: The ROS domain ID. It's 0 if not sepecified.
+
+For examples:
+
+```bash
+@mcap_writer/start?domain=123&topic=chatter'
+@mcap_writer/stop
 ```
 
 ### HTTP API
 
 `rmw-zenoh-mcap-writer` loads the REST plugin, so we can send HTTP request to start / stop recording.
-The URL should always be `http://your_host:8000/@mcap/writer`.
+The URL should always be `http://your_host:8000/<selector>`.
 
 Take some examples:
-
-* Recording the ROS topic with ROS Domain ID 2
-
-```bash
-curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "start", "topic": "chatter", "domain": "2"}'
-```
 
 * Recording all ROS topic with the default ROS Domain ID 0
 
 ```bash
-curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "start"}'
+curl -X GET 'http://localhost:8000/@mcap_writer/start'
+```
+
+* Recording the ROS topic with ROS Domain ID 2
+
+```bash
+curl -X GET 'http://localhost:8000/@mcap_writer/start?domain=2&topic=chatter'
 ```
 
 * Stop recording
 
 ```bash
-curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "stop"}'
+curl -X GET 'http://localhost:8000/@mcap_writer/stop'
 ```
 
 ## Build
@@ -74,7 +74,7 @@ cargo build --release
 * Send request to start recording the ROS 2 topic
 
 ```bash
-curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "start"}'
+curl -X GET 'http://localhost:8000/@mcap_writer/start'
 ```
 
 * Run ROS 2 talker (TODO: Using test Docker image)
@@ -82,7 +82,7 @@ curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "start"}'
 * Send request to stop recording the ROS 2 topic
 
 ```bash
-curl -X PUT 'http://localhost:8000/@/*/@mcap/writer' -d '{"status": "stop"}'
+curl -X GET 'http://localhost:8000/@mcap_writer/stop'
 ```
 
 * TODO: Replay the recorded MCAP
