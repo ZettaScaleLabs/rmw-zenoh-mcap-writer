@@ -11,8 +11,8 @@ use zenoh::{
 };
 
 const HTTP_PORT: u16 = 8000;
-const START_KEY_EXPR: &str = "@mcap_writer/start";
-const STOP_KEY_EXPR: &str = "@mcap_writer/stop";
+const START_KEY_EXPR: &str = "@mcap/writer/start";
+const STOP_KEY_EXPR: &str = "@mcap/writer/stop";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -48,13 +48,13 @@ async fn main() -> Result<()> {
         .declare_queryable(START_KEY_EXPR)
         .callback(move |query| {
             let key_expr = query.key_expr().clone();
-            let selector = query.selector().clone();
+            let parameters = query.parameters().clone();
             let value = query.payload().clone();
 
             tracing::info!(
-                "received query on '{}': selector={:?}, value={:?}",
+                "received query on '{}': parameters={:?}, value={:?}",
                 key_expr,
-                selector,
+                parameters,
                 value
             );
         })
@@ -65,13 +65,13 @@ async fn main() -> Result<()> {
         .declare_queryable(STOP_KEY_EXPR)
         .callback(move |query| {
             let key_expr = query.key_expr().clone();
-            let selector = query.selector().clone();
+            let parameters = query.parameters().clone();
             let value = query.payload().clone();
 
             tracing::info!(
-                "received query on '{}': selector={:?}, value={:?}",
+                "received query on '{}': parameters={:?}, value={:?}",
                 key_expr,
-                selector,
+                parameters,
                 value
             );
         })

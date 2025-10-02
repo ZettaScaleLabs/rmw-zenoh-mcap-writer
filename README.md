@@ -7,8 +7,8 @@ The MCAP writer is able to subscribe to all or a subset of ROS 2 topics and writ
 When `rmw-zenoh-mcap-writer` is running, we can send an Zenoh Query to start or stop recording.
 There are two kinds of Zenoh selectors for different purposes:
 
-* `@mcap_writer/start`: Start to record the ROS 2 topic.
-* `@mcap_writer/stop`: Stop recording the ROS 2 topic.
+* `@mcap/writer/start`: Start to record the ROS 2 topic.
+* `@mcap/writer/stop`: Stop recording the ROS 2 topic.
 
 Here are some parameters support in the selector:
 
@@ -25,19 +25,19 @@ Take some examples:
 * Recording all ROS topic with the default ROS Domain ID 0
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap_writer/start'
+curl -X GET 'http://localhost:8000/@mcap/writer/start'
 ```
 
 * Recording the ROS topic with ROS Domain ID 2
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap_writer/start?domain=2&topic=chatter'
+curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2&topic=chatter'
 ```
 
 * Stop recording
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap_writer/stop'
+curl -X GET 'http://localhost:8000/@mcap/writer/stop'
 ```
 
 ## Build
@@ -67,7 +67,7 @@ cargo build --release
 * Send request to start recording the ROS 2 topic
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap_writer/start'
+curl -X GET 'http://localhost:8000/@mcap/writer/start'
 ```
 
 * Run ROS 2 talker (TODO: Using test Docker image)
@@ -75,7 +75,7 @@ curl -X GET 'http://localhost:8000/@mcap_writer/start'
 * Send request to stop recording the ROS 2 topic
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap_writer/stop'
+curl -X GET 'http://localhost:8000/@mcap/writer/stop'
 ```
 
 * TODO: Replay the recorded MCAP
