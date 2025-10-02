@@ -8,9 +8,13 @@ When `rmw-zenoh-mcap-writer` is running, we can send an Zenoh Query to start or 
 There are two kinds of Zenoh selectors for different purposes:
 
 * `@mcap/writer/start`: Start to record the ROS 2 topic.
+  * Return value: `success` or `failure`
+* `@mcap/writer/status`: The status of the recorder.
+  * Return value: `recording` or `stopped`
 * `@mcap/writer/stop`: Stop recording the ROS 2 topic.
+  * Return value: `success` or `failure`
 
-Here are some parameters support in the selector:
+Here are some parameters support in the selector (only valid for `@mcap/writer/start`):
 
 * `topic`: The recorded ROS topic. It will record all topics if not specified.
 * `domain`: The ROS domain ID. It's 0 if not sepecified.
@@ -25,19 +29,29 @@ Take some examples:
 * Recording all ROS topic with the default ROS Domain ID 0
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap/writer/start'
+$ curl -X GET 'http://localhost:8000/@mcap/writer/start'
+success
 ```
 
 * Recording the ROS topic with ROS Domain ID 2
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2&topic=chatter'
+$ curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2&topic=chatter'
+failure
+```
+
+* Get the status of the recorder
+
+```bash
+$ curl -X GET 'http://localhost:8000/@mcap/writer/status'
+recording
 ```
 
 * Stop recording
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap/writer/stop'
+$ curl -X GET 'http://localhost:8000/@mcap/writer/stop'
+success
 ```
 
 ## Build
@@ -67,7 +81,8 @@ cargo build --release
 * Send request to start recording the ROS 2 topic
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap/writer/start'
+$ curl -X GET 'http://localhost:8000/@mcap/writer/start'
+success
 ```
 
 * Run ROS 2 talker (TODO: Using test Docker image)
@@ -75,7 +90,8 @@ curl -X GET 'http://localhost:8000/@mcap/writer/start'
 * Send request to stop recording the ROS 2 topic
 
 ```bash
-curl -X GET 'http://localhost:8000/@mcap/writer/stop'
+$ curl -X GET 'http://localhost:8000/@mcap/writer/stop'
+success
 ```
 
 * TODO: Replay the recorded MCAP
