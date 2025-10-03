@@ -8,15 +8,38 @@ When `rmw-zenoh-mcap-writer` is running, we can send an Zenoh Query to start or 
 There are two kinds of Zenoh selectors for different purposes:
 
 * `@mcap/writer/start`: Start to record the ROS 2 topic.
-  * Return value: `success` or `failure`
+  * Return value:
+  
+  ```json
+  {
+    "result": "success",  // It can be either success or failure
+  }
+  ```
+
 * `@mcap/writer/status`: The status of the recorder.
-  * Return value: `recording` or `stopped`
+
+  ```json
+  {
+    "status": "recording",  // It can be either recording or stopped
+  }
+  ```
+
 * `@mcap/writer/stop`: Stop recording the ROS 2 topic.
-  * Return value: `success` or `failure`
+  
+  ```json
+  {
+    "result": "success",                       // It can be either success or failure
+    "filename": "rosbag2_2025_10_03-16_28_40", // The stored rosbag filename  
+  }
+  ```
 
 Here are some parameters support in the selector (only valid for `@mcap/writer/start`):
 
-* `topic`: The recorded ROS topic. It will record all topics if not specified.
+* `topic`: The recorded ROS topic list.
+  * You can have a list of ROS topics to be recorded here, separated by `,`.
+  * You can use `*`, which means matches any set of characters except for `/`. For example, `/robot/1/*` can match `/robot/1/lidar`, `/robot/1/camera`, and so on.
+  * You can use `**`, which means matches any set of characters including `/`. For example, `/robot/**` can match `robot/1/lidar`, `/robot/2/camera`, and so on.
+  * By default, it's `*`, which means recording all ROS topics.
 * `domain`: The ROS domain ID. It's 0 if not sepecified.
 
 ### HTTP API
@@ -30,28 +53,65 @@ Take some examples:
 
 ```bash
 $ curl -X GET 'http://localhost:8000/@mcap/writer/start'
-success
+[
+  {
+    "key": "@mcap/writer/start",
+    "value": {
+      "result": "success"
+    },
+    "encoding": "text/json",
+    "timestamp": null
+  }
+]
 ```
 
 * Recording the ROS topic with ROS Domain ID 2
 
 ```bash
 $ curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2&topic=chatter'
-failure
+[
+  {
+    "key": "@mcap/writer/start",
+    "value": {
+      "result": "success"
+    },
+    "encoding": "text/json",
+    "timestamp": null
+  }
+]
 ```
 
 * Get the status of the recorder
 
 ```bash
 $ curl -X GET 'http://localhost:8000/@mcap/writer/status'
-recording
+[
+  {
+    "key": "@mcap/writer/status",
+    "value": {
+      "status": "running"
+    },
+    "encoding": "text/json",
+    "timestamp": null
+  }
+]
 ```
 
 * Stop recording
 
 ```bash
 $ curl -X GET 'http://localhost:8000/@mcap/writer/stop'
-success
+[
+  {
+    "key": "@mcap/writer/stop",
+    "value": {
+      "filename": "rosbag2_2025_10_03-17_09_53",
+      "result": "success"
+    },
+    "encoding": "text/json",
+    "timestamp": null
+  }
+]
 ```
 
 ## Build
@@ -72,26 +132,4 @@ cargo build --release
 
 ## Usage
 
-* Run the `rmw-zenoh-mcap-writer` if you're not using the Docker image
-
-```bash
-./target/release/rmw-zenoh-mcap-writer
-```
-
-* Send request to start recording the ROS 2 topic
-
-```bash
-$ curl -X GET 'http://localhost:8000/@mcap/writer/start'
-success
-```
-
-* Run ROS 2 talker (TODO: Using test Docker image)
-
-* Send request to stop recording the ROS 2 topic
-
-```bash
-$ curl -X GET 'http://localhost:8000/@mcap/writer/stop'
-success
-```
-
-* TODO: Replay the recorded MCAP
+TODO
