@@ -2863,7 +2863,10 @@ name = "rmw-zenoh-mcap-writer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "zenoh",

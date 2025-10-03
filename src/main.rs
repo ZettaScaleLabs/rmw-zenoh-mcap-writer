@@ -5,6 +5,8 @@
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
 use anyhow::{Result, anyhow};
+use chrono::Local;
+use serde::{Deserialize, Serialize};
 use zenoh::{
     Config, Wait,
     bytes::Encoding,
@@ -18,6 +20,22 @@ const HTTP_PORT: u16 = 8000;
 kedefine!(
     pub(crate) ke_command: "@mcap/writer/${command:*}",
 );
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct Start {
+    pub(crate) result: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct Stop {
+    pub(crate) result: String,
+    pub(crate) filename: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct Status {
+    pub(crate) status: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -65,27 +83,42 @@ async fn main() -> Result<()> {
                     );
                     // Here we would start the recording task
                     //let _record_task = recorder::RecordTask::new(topic, domain);
+                    // TODO: Get the exact result: success / failure
+                    let start = Start {
+                        result: "success".to_string(),
+                    };
                     query
-                        .reply(query.key_expr(), "success")
-                        .encoding(Encoding::TEXT_PLAIN)
+                        .reply(query.key_expr(), serde_json::to_string(&start).unwrap())
+                        .encoding(Encoding::TEXT_JSON)
                         .wait()
                         .unwrap();
                 }
                 "stop" => {
                     tracing::info!("received stop command");
                     // Here we would stop the recording task
+                    // TODO: Get the exact result: success / failure
+                    // TODO: filename should be based on actual recording
+                    let now = Local::now();
+                    let stop = Stop {
+                        result: "success".to_string(),
+                        filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S").to_string(),
+                    };
                     query
-                        .reply(query.key_expr(), "success")
-                        .encoding(Encoding::TEXT_PLAIN)
+                        .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
+                        .encoding(Encoding::TEXT_JSON)
                         .wait()
                         .unwrap();
                 }
                 "status" => {
                     tracing::info!("received status command");
                     // Here we would return the status of the recorder
+                    // TODO: Get the real status (recording / stopped)
+                    let status = Status {
+                        status: "recording".to_string(),
+                    };
                     query
-                        .reply(query.key_expr(), "running")
-                        .encoding(Encoding::TEXT_PLAIN)
+                        .reply(query.key_expr(), serde_json::to_string(&status).unwrap())
+                        .encoding(Encoding::TEXT_JSON)
                         .wait()
                         .unwrap();
                 }
