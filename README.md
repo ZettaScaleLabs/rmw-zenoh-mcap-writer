@@ -28,8 +28,8 @@ There are two kinds of Zenoh selectors for different purposes:
   
   ```json
   {
-    "result": "success",                       // It can be either success or failure
-    "filename": "rosbag2_2025_10_03-16_28_40", // The stored rosbag filename  
+    "result": "success",                            // It can be either success or failure
+    "filename": "rosbag2_2025_10_03-16_28_40.mcap", // The stored rosbag filename  
   }
   ```
 
@@ -105,7 +105,7 @@ $ curl -X GET 'http://localhost:8000/@mcap/writer/stop'
   {
     "key": "@mcap/writer/stop",
     "value": {
-      "filename": "rosbag2_2025_10_03-17_09_53",
+      "filename": "rosbag2_2025_10_03-17_09_53.mcap",
       "result": "success"
     },
     "encoding": "text/json",

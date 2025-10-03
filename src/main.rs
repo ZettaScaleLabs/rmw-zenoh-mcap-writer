@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
                     let now = Local::now();
                     let stop = Stop {
                         result: "success".to_string(),
-                        filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S").to_string(),
+                        filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S.mcap").to_string(),
                     };
                     query
                         .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
