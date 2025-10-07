@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 //
 // Copyright (c) 2025 ZettaScale Technology
 // All rights reserved.
@@ -86,6 +84,7 @@ async fn main() -> Result<()> {
         let ke = ke_command::parse(query.key_expr()).unwrap();
         match ke.command().as_str() {
             "start" => {
+                // TODO: Rest plugin couldn't parse & in the selector
                 let topic = query.parameters().get("topic").unwrap_or("*");
                 let domain = query.parameters().get("domain").unwrap_or("0");
                 tracing::info!(
@@ -94,13 +93,13 @@ async fn main() -> Result<()> {
                     domain
                 );
                 // Here we would start the recording task
-                let result = if recorder_handler
-                    .start(topic.to_owned(), domain.parse().unwrap())
-                    .is_ok()
+                let result = if let Err(e) =
+                    recorder_handler.start(topic.to_owned(), domain.parse().unwrap())
                 {
-                    "success".to_owned()
-                } else {
+                    tracing::error!("failed to start recording: {e}");
                     "failure".to_owned()
+                } else {
+                    "success".to_owned()
                 };
                 let start = Start { result };
                 query
@@ -113,10 +112,11 @@ async fn main() -> Result<()> {
                 tracing::info!("received stop command");
                 // Here we would stop the recording task
                 // TODO: filename should be based on actual recording
-                let result = if recorder_handler.stop().is_ok() {
-                    "success".to_owned()
-                } else {
+                let result = if let Err(e) = recorder_handler.stop() {
+                    tracing::error!("failed to stop recording: {e}");
                     "failure".to_owned()
+                } else {
+                    "success".to_owned()
                 };
                 let now = Local::now();
                 let stop = Stop {
