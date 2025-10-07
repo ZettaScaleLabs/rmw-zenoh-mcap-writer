@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 //
 // Copyright (c) 2025 ZettaScale Technology
 // All rights reserved.
@@ -14,9 +16,13 @@ use zenoh::{
     key_expr::format::{kedefine, keformat},
 };
 
-//mod recorder;
+mod recorder;
 
+// TODO: Make it configurable
 const HTTP_PORT: u16 = 8000;
+// TODO: Make it configurable
+//const DEFAULT_PATH: &str = ".";
+
 kedefine!(
     pub(crate) ke_command: "@mcap/writer/${command:*}",
 );
@@ -63,72 +69,81 @@ async fn main() -> Result<()> {
         .await
         .map_err(|err| anyhow!("failed to start Zenoh runtime: {err}"))?;
 
+    // Create a RecorderHandler
+    let mut recorder_handler = recorder::RecorderHandler::new();
+
     // Create a Queryable for the recorder
     let zsession = zenoh::session::init(runtime)
         .await
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
     let queryable_key_expr = keformat!(ke_command::formatter(), command = "*").unwrap();
-    let _queryable = zsession
+    let queryable = zsession
         .declare_queryable(queryable_key_expr.clone())
-        .callback(move |query| {
-            let ke = ke_command::parse(query.key_expr()).unwrap();
-            match ke.command().as_str() {
-                "start" => {
-                    let topic = query.parameters().get("topic");
-                    let domain = query.parameters().get("domain");
-                    tracing::info!(
-                        "received start command: topic='{:?}', domain='{:?}'",
-                        topic,
-                        domain
-                    );
-                    // Here we would start the recording task
-                    //let _record_task = recorder::RecordTask::new(topic, domain);
-                    // TODO: Get the exact result: success / failure
-                    let start = Start {
-                        result: "success".to_string(),
-                    };
-                    query
-                        .reply(query.key_expr(), serde_json::to_string(&start).unwrap())
-                        .encoding(Encoding::TEXT_JSON)
-                        .wait()
-                        .unwrap();
-                }
-                "stop" => {
-                    tracing::info!("received stop command");
-                    // Here we would stop the recording task
-                    // TODO: Get the exact result: success / failure
-                    // TODO: filename should be based on actual recording
-                    let now = Local::now();
-                    let stop = Stop {
-                        result: "success".to_string(),
-                        filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S.mcap").to_string(),
-                    };
-                    query
-                        .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
-                        .encoding(Encoding::TEXT_JSON)
-                        .wait()
-                        .unwrap();
-                }
-                "status" => {
-                    tracing::info!("received status command");
-                    // Here we would return the status of the recorder
-                    // TODO: Get the real status (recording / stopped)
-                    let status = Status {
-                        status: "recording".to_string(),
-                    };
-                    query
-                        .reply(query.key_expr(), serde_json::to_string(&status).unwrap())
-                        .encoding(Encoding::TEXT_JSON)
-                        .wait()
-                        .unwrap();
-                }
-                cmd => {
-                    tracing::warn!("unknown command received: '{cmd}'");
-                }
-            }
-        })
         .await
         .map_err(|err| anyhow!("failed to subscribe to '{}': {err}", queryable_key_expr))?;
+
+    while let Ok(query) = queryable.recv_async().await {
+        let ke = ke_command::parse(query.key_expr()).unwrap();
+        match ke.command().as_str() {
+            "start" => {
+                let topic = query.parameters().get("topic").unwrap_or("*");
+                let domain = query.parameters().get("domain").unwrap_or("0");
+                tracing::info!(
+                    "received start command: topic='{:?}', domain='{:?}'",
+                    topic,
+                    domain
+                );
+                // Here we would start the recording task
+                let result = if recorder_handler
+                    .start(topic.to_owned(), domain.parse().unwrap())
+                    .is_ok()
+                {
+                    "success".to_owned()
+                } else {
+                    "failure".to_owned()
+                };
+                let start = Start { result };
+                query
+                    .reply(query.key_expr(), serde_json::to_string(&start).unwrap())
+                    .encoding(Encoding::TEXT_JSON)
+                    .wait()
+                    .unwrap();
+            }
+            "stop" => {
+                tracing::info!("received stop command");
+                // Here we would stop the recording task
+                // TODO: filename should be based on actual recording
+                let result = if recorder_handler.stop().is_ok() {
+                    "success".to_owned()
+                } else {
+                    "failure".to_owned()
+                };
+                let now = Local::now();
+                let stop = Stop {
+                    result,
+                    filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S.mcap").to_string(),
+                };
+                query
+                    .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
+                    .encoding(Encoding::TEXT_JSON)
+                    .wait()
+                    .unwrap();
+            }
+            "status" => {
+                tracing::info!("received status command");
+                let status = recorder_handler.status();
+                let status = Status { status };
+                query
+                    .reply(query.key_expr(), serde_json::to_string(&status).unwrap())
+                    .encoding(Encoding::TEXT_JSON)
+                    .wait()
+                    .unwrap();
+            }
+            cmd => {
+                tracing::warn!("unknown command received: '{cmd}'");
+            }
+        }
+    }
 
     futures::future::pending::<()>().await;
 
