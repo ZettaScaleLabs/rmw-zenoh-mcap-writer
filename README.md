@@ -25,6 +25,7 @@ The supported command are:
     **`/bot1/camera/**`** is matching the same, plus `/bot1/camera/depth/camera_info` and `/bot1/camera/depth/image_raw`.
 
 * **Return value**: a JSON string
+
   ```json
   {
     "result": "success",  // It can be either "success" or "failure"
@@ -101,6 +102,7 @@ Assuming `rmw-zenoh-mcap-writer` runs the REST API on port `8000` - which is the
 * **Optional Query parameters**: none
 
 * **Return value**: a JSON string
+
   ```json
   {
     "result": "success",  // It can be either "success" or "failure"
@@ -152,6 +154,7 @@ else:
 * **Optional Query parameters**: none
 
 * **Return value**: a JSON string
+
   ```json
   {
     "status": "recording",  // It can be either "recording" or "stopped"
@@ -193,7 +196,6 @@ else:
 ```
 
 </details>
-
 
 ## Build
 
