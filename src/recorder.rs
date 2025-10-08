@@ -1,19 +1,37 @@
+//
+// Copyright (c) 2025 ZettaScale Technology
+// All rights reserved.
+//
+// This software is the confidential and proprietary information of ZettaScale Technology.
+//
 use anyhow::{Result, anyhow};
+use zenoh::{
+    Session,
+    key_expr::format::{kedefine, keformat},
+};
+
+kedefine!(
+    pub(crate) ke_rostopic: "${domain:*}/${topic:*}/${remaining:**}",
+);
 
 pub struct RecorderHandler {
+    session: Session,
     task: Option<RecordTask>,
 }
 
 impl RecorderHandler {
-    pub fn new() -> Self {
-        Self { task: None }
+    pub fn new(session: Session) -> Self {
+        Self {
+            session,
+            task: None,
+        }
     }
 
     pub fn start(&mut self, topic: String, domain: u32) -> Result<String> {
         if self.task.is_some() {
             return Err(anyhow!("Recording task is already running"));
         }
-        let record_task = RecordTask::new(topic, domain);
+        let record_task = RecordTask::new(self.session.clone(), topic, domain);
         self.task = Some(record_task);
         Ok("Recording started".to_string())
     }
@@ -45,14 +63,26 @@ struct RecordTask {
 }
 
 impl RecordTask {
-    fn new(topic: String, domain: u32) -> Self {
+    fn new(session: Session, topic: String, domain: u32) -> Self {
         let topic_clone = topic.clone();
         let handle = tokio::spawn(async move {
-            // Simulate recording task
             tracing::info!("Started recording topic '{}' on domain {}", topic, domain);
-            // Here would be the actual recording logic
-            // For demonstration, we just sleep
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            let key_expr = keformat!(
+                ke_rostopic::formatter(),
+                domain = domain,
+                topic = &topic,
+                remaining = "**"
+            )
+            .unwrap();
+            tracing::info!("Subscribing to key expression: {}", key_expr);
+            let subscriber = session.declare_subscriber(&key_expr).await.unwrap();
+            while let Ok(sample) = subscriber.recv_async().await {
+                tracing::info!(
+                    "Received sample on topic '{}': {:?}",
+                    sample.key_expr(),
+                    sample.payload()
+                );
+            }
             tracing::info!("Stopped recording topic '{}' on domain {}", topic, domain);
         });
 
@@ -64,8 +94,7 @@ impl RecordTask {
     }
 
     async fn stop(self) {
-        // Here we would implement a proper shutdown of the recording task
-        // For now, we just abort the task
+        // TODO: Have a more graceful shutdown
         self.handle.abort();
         tracing::info!(
             "Aborted recording task for topic '{}' on domain {}",

@@ -7,6 +7,7 @@
 use anyhow::{Result, anyhow};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use zenoh::{
     Config, Wait,
     bytes::Encoding,
@@ -20,6 +21,8 @@ mod recorder;
 const HTTP_PORT: u16 = 8000;
 // TODO: Make it configurable
 //const DEFAULT_PATH: &str = ".";
+// TODO: Make it configurable
+const DEFAULT_ZENOHD: &str = "tcp/localhost:7447";
 
 kedefine!(
     pub(crate) ke_command: "@mcap/writer/${command:*}",
@@ -45,18 +48,25 @@ pub(crate) struct Status {
 async fn main() -> Result<()> {
     zenoh::init_log_from_env_or("info");
 
+    // TODO: Able to accept customized config file
     let mut config: Config = Default::default();
     config
         .insert_json5("plugins/rest/http_port", &format!(r#""{HTTP_PORT}""#))
         .and_then(|_| config.insert_json5("plugins/rest/__required__", "true"))
         .map_err(|err| anyhow!("could not set REST HTTP port `{HTTP_PORT}`: {err}"))?;
+    config
+        .insert_json5(
+            "connect/endpoints",
+            &json!(vec![DEFAULT_ZENOHD]).to_string(),
+        )
+        .unwrap();
     tracing::info!("using config: {config:?}");
 
     // Plugin manager with REST plugin
     let mut plugins_manager = PluginsManager::static_plugins_only();
     plugins_manager.declare_static_plugin::<zenoh_plugin_rest::RestPlugin, &str>("rest", true);
 
-    // Create a Zenoh Runtime.
+    // Create a Zenoh Runtime and Session.
     let mut runtime = RuntimeBuilder::new(config)
         .plugins_manager(plugins_manager)
         .build()
@@ -66,14 +76,14 @@ async fn main() -> Result<()> {
         .start()
         .await
         .map_err(|err| anyhow!("failed to start Zenoh runtime: {err}"))?;
-
-    // Create a RecorderHandler
-    let mut recorder_handler = recorder::RecorderHandler::new();
-
-    // Create a Queryable for the recorder
     let zsession = zenoh::session::init(runtime)
         .await
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
+
+    // Create a RecorderHandler
+    let mut recorder_handler = recorder::RecorderHandler::new(zsession.clone());
+
+    // Create a Queryable for the recorder
     let queryable_key_expr = keformat!(ke_command::formatter(), command = "*").unwrap();
     let queryable = zsession
         .declare_queryable(queryable_key_expr.clone())
