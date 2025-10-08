@@ -56,7 +56,7 @@ Assuming `rmw-zenoh-mcap-writer` runs the REST API on port `8000` - which is the
 * Recording some specific ROS topics with ROS Domain ID 2
 
   ```bash
-  $ curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2&topic=/camera/*,chatter'
+  $ curl -X GET 'http://localhost:8000/@mcap/writer/start?domain=2;topic=/camera/*,chatter'
   [
     {
       "key": "@mcap/writer/start",
@@ -89,7 +89,7 @@ Assuming `rmw-zenoh-mcap-writer` runs the REST API on port `8000` - which is the
 * Recording some specific ROS topics with ROS Domain ID 2
 
   ```python
-  replies = list(session.get('@mcap/writer/start?domain=2&topic=/camera/*,chatter'))
+  replies = list(session.get('@mcap/writer/start?domain=2;topic=/camera/*,chatter'))
   # ... same as above
   ```
 
