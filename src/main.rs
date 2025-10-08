@@ -5,7 +5,6 @@
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
 use anyhow::{Result, anyhow};
-use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zenoh::{
@@ -20,7 +19,7 @@ mod recorder;
 // TODO: Make it configurable
 const HTTP_PORT: u16 = 8000;
 // TODO: Make it configurable
-//const DEFAULT_PATH: &str = ".";
+const DEFAULT_PATH: &str = ".";
 // TODO: Make it configurable
 const DEFAULT_ZENOHD: &str = "tcp/localhost:7447";
 
@@ -81,7 +80,8 @@ async fn main() -> Result<()> {
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
 
     // Create a RecorderHandler
-    let mut recorder_handler = recorder::RecorderHandler::new(zsession.clone());
+    let mut recorder_handler =
+        recorder::RecorderHandler::new(zsession.clone(), DEFAULT_PATH.to_string());
 
     // Create a Queryable for the recorder
     let queryable_key_expr = keformat!(ke_command::formatter(), command = "*").unwrap();
@@ -121,18 +121,17 @@ async fn main() -> Result<()> {
             "stop" => {
                 tracing::info!("received stop command");
                 // Here we would stop the recording task
-                // TODO: filename should be based on actual recording
-                let result = if let Err(e) = recorder_handler.stop() {
-                    tracing::error!("failed to stop recording: {e}");
-                    "failure".to_owned()
-                } else {
-                    "success".to_owned()
+                let (result, filename) = match recorder_handler.stop() {
+                    Ok(filename) => {
+                        tracing::info!("Recording stopped, saved to file: {}", filename);
+                        ("success".to_owned(), filename)
+                    }
+                    Err(e) => {
+                        tracing::error!("failed to stop recording: {e}");
+                        ("failure".to_owned(), "".to_owned())
+                    }
                 };
-                let now = Local::now();
-                let stop = Stop {
-                    result,
-                    filename: now.format("rosbag2_%Y_%m_%d-%H_%M_%S.mcap").to_string(),
-                };
+                let stop = Stop { result, filename };
                 query
                     .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
                     .encoding(Encoding::TEXT_JSON)
