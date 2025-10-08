@@ -12,12 +12,22 @@ serde = "1.0.228"
 serde_json = "1.0.145"
 tokio = { version = "1.45.1", default-features = false } # Default features are disabled due to some crates' requirements
 tracing = "0.1.41"
-zenoh = { version = "1.5.1", features = [
+# TODO: https://github.com/eclipse-zenoh/zenoh/issues/2186
+zenoh = { git = "https://github.com/ZettaScaleLabs/zenoh.git", branch = "support_http_get_parameters", features = [
   "plugins",
   "internal",
   "unstable",
-  "shared-memory",
+  "shared-memory"
 ] }
-zenoh-plugin-rest = { version = "1.5.1", default-features = false, features = [
+zenoh-plugin-rest = { git = "https://github.com/ZettaScaleLabs/zenoh.git", branch = "support_http_get_parameters", default-features = false, features = [
   "static_plugin",
-]  }
+] }
+#zenoh = { version = "1.5.1", features = [
+#  "plugins",
+#  "internal",
+#  "unstable",
+#  "shared-memory",
+#] }
+#zenoh-plugin-rest = { version = "1.5.1", default-features = false, features = [
+#  "static_plugin",
+#]  }
