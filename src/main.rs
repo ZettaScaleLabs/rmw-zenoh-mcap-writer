@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
         let ke = ke_command::parse(query.key_expr()).unwrap();
         match ke.command().as_str() {
             "start" => {
-                // TODO: Rest plugin couldn't parse & in the selector
+                // TODO: Need to parse a list of topics
                 let topic = query.parameters().get("topic").unwrap_or("*");
                 let domain = query.parameters().get("domain").unwrap_or("0");
                 tracing::info!(

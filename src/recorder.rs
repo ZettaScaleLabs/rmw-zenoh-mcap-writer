@@ -5,6 +5,7 @@
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
 use std::{collections::BTreeMap, fs, io::BufWriter};
+use tokio::sync::oneshot;
 
 use anyhow::{Result, anyhow};
 use chrono::Local;
@@ -64,20 +65,20 @@ impl RecorderHandler {
 }
 
 struct RecordTask {
-    topic: String,
-    domain: u32,
     handle: tokio::task::JoinHandle<()>,
+    stop_tx: oneshot::Sender<()>,
     filename: String,
 }
 
 impl RecordTask {
     fn new(session: Session, path: String, topic: String, domain: u32) -> Self {
-        let topic_clone = topic.clone();
+        let (stop_tx, mut stop_rx) = oneshot::channel();
         let filename = format!("rosbag2_{}.mcap", Local::now().format("%Y_%m_%d_%H_%M_%S"));
         let fullpath = format!("{}/{}", path, filename);
         let handle = tokio::spawn(async move {
             tracing::info!("Started recording topic '{}' on domain {}", topic, domain);
             let options = mcap::WriteOptions::default()
+                .profile("ros2")
                 .calculate_chunk_crcs(false)
                 .compression(None);
             let mut out =
@@ -101,7 +102,6 @@ impl RecordTask {
                 &[1, 2, 3],
             )
             .unwrap();
-            out.finish().unwrap();
 
             let key_expr = keformat!(
                 ke_rostopic::formatter(),
@@ -112,31 +112,38 @@ impl RecordTask {
             .unwrap();
             tracing::info!("Subscribing to key expression: {}", key_expr);
             let subscriber = session.declare_subscriber(&key_expr).await.unwrap();
-            while let Ok(sample) = subscriber.recv_async().await {
-                tracing::info!(
-                    "Received sample on topic '{}': {:?}",
-                    sample.key_expr(),
-                    sample.payload()
-                );
+            loop {
+                tokio::select! {
+                    sample = subscriber.recv_async() => {
+                        if let Ok(sample) = sample {
+                            tracing::info!(
+                                "Received sample on topic '{}': {:?}",
+                                sample.key_expr(),
+                                sample.payload()
+                            );
+                        } else {
+                            break;
+                        }
+                    },
+                    _ = &mut stop_rx => {
+                        tracing::info!("Stop signal received.");
+                        break;
+                    }
+                }
             }
+            out.finish().unwrap();
             tracing::info!("Stopped recording topic '{}' on domain {}", topic, domain);
         });
 
         Self {
-            topic: topic_clone,
-            domain,
             handle,
+            stop_tx,
             filename,
         }
     }
 
     async fn stop(self) {
-        // TODO: Have a more graceful shutdown
-        self.handle.abort();
-        tracing::info!(
-            "Aborted recording task for topic '{}' on domain {}",
-            self.topic,
-            self.domain
-        );
+        let _ = self.stop_tx.send(());
+        let _ = self.handle.await;
     }
 }
