@@ -84,24 +84,6 @@ impl RecordTask {
             let mut out =
                 Writer::with_options(BufWriter::new(fs::File::create(fullpath).unwrap()), options)
                     .unwrap();
-            let channel_id = out
-                .add_channel(
-                    0,
-                    "cool stuff",
-                    "application/octet-stream",
-                    &BTreeMap::new(),
-                )
-                .unwrap();
-            out.write_to_known_channel(
-                &MessageHeader {
-                    channel_id,
-                    sequence: 25,
-                    log_time: 6,
-                    publish_time: 24,
-                },
-                &[1, 2, 3],
-            )
-            .unwrap();
 
             let key_expr = keformat!(
                 ke_rostopic::formatter(),
@@ -121,7 +103,29 @@ impl RecordTask {
                                 sample.key_expr(),
                                 sample.payload()
                             );
+                            // TODO: Check if the channel exists, if not, create it
+                            let channel_id = out
+                                .add_channel(
+                                    0,
+                                    "cool stuff",
+                                    "application/octet-stream",
+                                    &BTreeMap::new(),
+                                )
+                                .unwrap();
+                            // TODO: Check if the schema exists, if not, send a query to get type and create it
+                            // TODO: Write the sample to the MCAP file
+                            out.write_to_known_channel(
+                                &MessageHeader {
+                                    channel_id,
+                                    sequence: 25,
+                                    log_time: 6,
+                                    publish_time: 24,
+                                },
+                                &[1, 2, 3],
+                            )
+                            .unwrap();
                         } else {
+                            tracing::error!("Error receiving sample");
                             break;
                         }
                     },
