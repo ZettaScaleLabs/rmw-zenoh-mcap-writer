@@ -95,6 +95,7 @@ async fn main() -> Result<()> {
         match ke.command().as_str() {
             "start" => {
                 // TODO: Need to parse a list of topics
+                // TODO: Need to consider the leading `/`
                 let topic = query.parameters().get("topic").unwrap_or("*");
                 let domain = query.parameters().get("domain").unwrap_or("0");
                 tracing::info!(

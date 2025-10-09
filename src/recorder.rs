@@ -13,10 +13,13 @@ use mcap::{Writer, records::MessageHeader};
 use zenoh::{
     Session,
     key_expr::format::{kedefine, keformat},
+    sample::SampleKind,
 };
 
 kedefine!(
-    pub(crate) ke_rostopic: "${domain:*}/${topic:*}/${remaining:**}",
+    pub(crate) ke_rostopic: "${domain:*}/${topic:*}/${rostype:*}/${hash:*}",
+    // TODO: Should we consider mangled_enclave and mangled_namespace
+    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/MP/%/%/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
 pub struct RecorderHandler {
@@ -85,15 +88,39 @@ impl RecordTask {
                 Writer::with_options(BufWriter::new(fs::File::create(fullpath).unwrap()), options)
                     .unwrap();
 
+            // Subscribe to the topic
             let key_expr = keformat!(
                 ke_rostopic::formatter(),
                 domain = domain,
                 topic = &topic,
-                remaining = "**"
+                rostype = "*",
+                hash = "*",
             )
             .unwrap();
             tracing::info!("Subscribing to key expression: {}", key_expr);
             let subscriber = session.declare_subscriber(&key_expr).await.unwrap();
+
+            // Subscribe to the liveliness
+            let key_expr = keformat!(
+                ke_graphcache::formatter(),
+                domain = domain,
+                zid = "*",
+                node = "*",
+                entity = "*",
+                node_name = "*",
+                topic = &topic,
+                rostype = "*",
+                hash = "*",
+                qos = "*",
+            )
+            .unwrap();
+            tracing::info!("Subscribing to liveliness key expression: {}", key_expr);
+            let liveliness_subscriber = session
+                .liveliness()
+                .declare_subscriber(&key_expr)
+                .history(true)
+                .await
+                .unwrap();
             loop {
                 tokio::select! {
                     sample = subscriber.recv_async() => {
@@ -103,6 +130,10 @@ impl RecordTask {
                                 sample.key_expr(),
                                 sample.payload()
                             );
+                            if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
+                                tracing::info!("rostype: {}, hash: {}", ke.rostype(), ke.hash());
+                            }
+                            // TODO: Check if the schema exists, if not, send a query to get type and create it
                             // TODO: Check if the channel exists, if not, create it
                             let channel_id = out
                                 .add_channel(
@@ -112,8 +143,9 @@ impl RecordTask {
                                     &BTreeMap::new(),
                                 )
                                 .unwrap();
-                            // TODO: Check if the schema exists, if not, send a query to get type and create it
+                            // TODO: Get the channel id from the table
                             // TODO: Write the sample to the MCAP file
+                            // TODO: Check the time
                             out.write_to_known_channel(
                                 &MessageHeader {
                                     channel_id,
@@ -126,6 +158,28 @@ impl RecordTask {
                             .unwrap();
                         } else {
                             tracing::error!("Error receiving sample");
+                            break;
+                        }
+                    },
+                    sample = liveliness_subscriber.recv_async() => {
+                        if let Ok(sample) = sample {
+                            // Ignore non-Put samples in liveliness
+                            if sample.kind() != SampleKind::Put {
+                                continue;
+                            }
+                            tracing::info!(
+                                "Received liveliness sample on topic '{}': {:?}",
+                                sample.key_expr(),
+                                sample.payload()
+                            );
+                            if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
+                                tracing::info!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
+                                // TODO: Store schema
+                                // TODO: Store channel
+                                // TODO: Store a table (hash => channel id)
+                            }
+                        } else {
+                            tracing::error!("Error receiving liveliness sample");
                             break;
                         }
                     },
