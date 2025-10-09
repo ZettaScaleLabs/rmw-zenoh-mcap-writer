@@ -5,16 +5,18 @@
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
 use std::{collections::BTreeMap, fs, io::BufWriter};
-use tokio::sync::oneshot;
 
 use anyhow::{Result, anyhow};
 use chrono::Local;
 use mcap::{Writer, records::MessageHeader, write::Metadata};
+use tokio::sync::oneshot;
 use zenoh::{
     Session,
     key_expr::format::{kedefine, keformat},
     sample::SampleKind,
 };
+
+use crate::utils;
 
 kedefine!(
     pub(crate) ke_rostopic: "${domain:*}/${topic:*}/${rostype:*}/${hash:*}",
@@ -176,16 +178,16 @@ impl RecordTask {
                             );
                             if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
                                 tracing::info!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
+                                let rostype = utils::dds_type_to_ros_type(&ke.rostype());
 
                                 // TODO: We need to send a query to get the data (ROS message type definition)
-                                let schema_id = match schemas_map.get(&ke.rostype().to_string()) {
+                                let schema_id = match schemas_map.get(&rostype) {
                                     Some(id) => *id,
                                     None => {
                                         let dummy_data = "TODO".as_bytes();
-                                        let id = out.add_schema(&ke.rostype(), "ros2msg", dummy_data).unwrap();
-                                        // TODO: Use correct rostype
-                                        schemas_map.insert(ke.rostype().to_string(), id);
-                                        tracing::info!("Adding new schema for rostype: {} and id: {id}", ke.rostype());
+                                        let id = out.add_schema(&rostype, "ros2msg", dummy_data).unwrap();
+                                        tracing::info!("Adding new schema for rostype: {} and id: {id}", rostype);
+                                        schemas_map.insert(rostype, id);
                                         id
                                     }
                                 };

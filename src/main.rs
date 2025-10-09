@@ -15,6 +15,7 @@ use zenoh::{
 };
 
 mod recorder;
+mod utils;
 
 // TODO: Make it configurable
 const HTTP_PORT: u16 = 8000;
