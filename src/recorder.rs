@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 
 use anyhow::{Result, anyhow};
 use chrono::Local;
-use mcap::{Writer, records::MessageHeader};
+use mcap::{Writer, records::MessageHeader, write::Metadata};
 use zenoh::{
     Session,
     key_expr::format::{kedefine, keformat},
@@ -90,6 +90,12 @@ impl RecordTask {
             let mut out =
                 Writer::with_options(BufWriter::new(fs::File::create(fullpath).unwrap()), options)
                     .unwrap();
+            // TODO: Write the metadata
+            out.write_metadata(&Metadata {
+                name: "rosbag2".to_string(),
+                metadata: BTreeMap::new(),
+            })
+            .unwrap();
 
             // Subscribe to the topic
             let key_expr = keformat!(
@@ -213,6 +219,13 @@ impl RecordTask {
                     }
                 }
             }
+
+            // TODO: Write the metadata again at the final stage
+            out.write_metadata(&Metadata {
+                name: "rosbag2".to_string(),
+                metadata: BTreeMap::new(),
+            })
+            .unwrap();
             out.finish().unwrap();
             tracing::info!("Stopped recording topic '{}' on domain {}", topic, domain);
         });
