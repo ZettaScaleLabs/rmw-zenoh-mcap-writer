@@ -80,6 +80,9 @@ impl RecordTask {
         let fullpath = format!("{}/{}", path, filename);
         let handle = tokio::spawn(async move {
             tracing::info!("Started recording topic '{}' on domain {}", topic, domain);
+            // create a hashmap to store schema (String => u16)
+            let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
+            let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
             let options = mcap::WriteOptions::default()
                 .profile("ros2")
                 .calculate_chunk_crcs(false)
@@ -125,37 +128,30 @@ impl RecordTask {
                 tokio::select! {
                     sample = subscriber.recv_async() => {
                         if let Ok(sample) = sample {
-                            tracing::info!(
+                            tracing::trace!(
                                 "Received sample on topic '{}': {:?}",
                                 sample.key_expr(),
                                 sample.payload()
                             );
                             if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
-                                tracing::info!("rostype: {}, hash: {}", ke.rostype(), ke.hash());
+                                tracing::info!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
+                                let topic = "/".to_string() + &ke.topic();  // The topic requires the leading '/'
+                                if let Some(channel_id) = channels_map.get(&topic) {
+                                    tracing::info!("Found existing channel_id: {}", channel_id);
+                                    // TODO: Check the time
+                                    out.write_to_known_channel(
+                                        &MessageHeader {
+                                            channel_id: *channel_id,
+                                            sequence: 0,
+                                            log_time: 6,
+                                            publish_time: 24,
+                                        },
+                                        sample.payload().to_bytes().as_ref(),
+                                    )
+                                    .unwrap();
+                                }
+
                             }
-                            // TODO: Check if the schema exists, if not, send a query to get type and create it
-                            // TODO: Check if the channel exists, if not, create it
-                            let channel_id = out
-                                .add_channel(
-                                    0,
-                                    "cool stuff",
-                                    "application/octet-stream",
-                                    &BTreeMap::new(),
-                                )
-                                .unwrap();
-                            // TODO: Get the channel id from the table
-                            // TODO: Write the sample to the MCAP file
-                            // TODO: Check the time
-                            out.write_to_known_channel(
-                                &MessageHeader {
-                                    channel_id,
-                                    sequence: 25,
-                                    log_time: 6,
-                                    publish_time: 24,
-                                },
-                                &[1, 2, 3],
-                            )
-                            .unwrap();
                         } else {
                             tracing::error!("Error receiving sample");
                             break;
@@ -167,16 +163,44 @@ impl RecordTask {
                             if sample.kind() != SampleKind::Put {
                                 continue;
                             }
-                            tracing::info!(
+                            tracing::trace!(
                                 "Received liveliness sample on topic '{}': {:?}",
                                 sample.key_expr(),
                                 sample.payload()
                             );
                             if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
                                 tracing::info!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
-                                // TODO: Store schema
-                                // TODO: Store channel
-                                // TODO: Store a table (hash => channel id)
+
+                                // TODO: We need to send a query to get the data (ROS message type definition)
+                                let schema_id = match schemas_map.get(&ke.rostype().to_string()) {
+                                    Some(id) => *id,
+                                    None => {
+                                        let dummy_data = "TODO".as_bytes();
+                                        let id = out.add_schema(&ke.rostype(), "ros2msg", dummy_data).unwrap();
+                                        // TODO: Use correct rostype
+                                        schemas_map.insert(ke.rostype().to_string(), id);
+                                        tracing::info!("Adding new schema for rostype: {} and id: {id}", ke.rostype());
+                                        id
+                                    }
+                                };
+                                if !channels_map.contains_key(&ke.topic().to_string()) {
+                                    let metadata = BTreeMap::from([
+                                        // TODO: Use correct QoS
+                                        ("offered_qos_profiles".to_string(), ke.qos().to_string()),
+                                        ("topic_type_hash".to_string(), ke.hash().to_string()),
+                                    ]);
+                                    // TODO: Should we deal with namespace?
+                                    // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw
+                                    let topic = ke.topic().replace('%', "/").to_string();
+                                    let channel_id = out.add_channel(
+                                        schema_id,
+                                        &topic,
+                                        "cdr",
+                                        &metadata,
+                                    ).unwrap();
+                                    channels_map.insert(topic.to_string(), channel_id);
+                                    tracing::info!("Adding new channel for topic: {topic} with id: {channel_id}");
+                                }
                             }
                         } else {
                             tracing::error!("Error receiving liveliness sample");
