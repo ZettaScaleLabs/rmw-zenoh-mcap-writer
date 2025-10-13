@@ -7,7 +7,7 @@
 use std::{collections::BTreeMap, fs, io::BufWriter};
 
 use anyhow::{Result, anyhow};
-use chrono::Local;
+use chrono::{Local, Utc};
 use mcap::{Writer, records::MessageHeader, write::Metadata};
 use tokio::sync::oneshot;
 use zenoh::{
@@ -151,13 +151,13 @@ impl RecordTask {
                                 let topic = "/".to_string() + &ke.topic();  // The topic requires the leading '/'
                                 if let Some(channel_id) = channels_map.get(&topic) {
                                     tracing::info!("Found existing channel_id: {}", channel_id);
-                                    // TODO: Check the time
+                                    let current_time = Utc::now().timestamp_nanos_opt().unwrap() as u64;
                                     out.write_to_known_channel(
                                         &MessageHeader {
                                             channel_id: *channel_id,
-                                            sequence: 0,
-                                            log_time: 6,
-                                            publish_time: 24,
+                                            sequence: 0,  // It should be 0 if we don't use the sequence
+                                            log_time: current_time,  // Receive timestamp
+                                            publish_time: current_time,  // TODO: Parse the Zenoh attachment
                                         },
                                         sample.payload().to_bytes().as_ref(),
                                     )
