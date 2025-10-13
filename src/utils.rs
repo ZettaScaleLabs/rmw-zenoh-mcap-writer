@@ -83,7 +83,7 @@ pub fn dds_type_to_ros_type(dds_type: &str) -> String {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(remote = "Duration")]
 pub struct DurationDef {
-    #[serde(rename = "sec", getter = "Duration::num_minutes")]
+    #[serde(rename = "sec", getter = "Duration::num_seconds")]
     secs: i64,
     #[serde(rename = "nsec", getter = "Duration::subsec_nanos")]
     nanos: i32,
