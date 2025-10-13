@@ -69,18 +69,25 @@ async fn main() -> Result<()> {
         recorder::RecorderHandler::new(zsession.clone(), args.output_path().to_string());
 
     // Create a Queryable for the recorder
-    let queryable_key_expr = keformat!(ke_command::formatter(), command = "*").unwrap();
+    let queryable_key_expr = keformat!(ke_command::formatter(), command = "*")
+        .expect("should not fail to transform the key expression.");
     let queryable = zsession
         .declare_queryable(queryable_key_expr.clone())
         .await
         .map_err(|err| anyhow!("failed to subscribe to '{}': {err}", queryable_key_expr))?;
 
     while let Ok(query) = queryable.recv_async().await {
-        let ke = ke_command::parse(query.key_expr()).unwrap();
+        let ke = if let Ok(parsed_ke) = ke_command::parse(query.key_expr()) {
+            parsed_ke
+        } else {
+            tracing::warn!(
+                "received invalid command key expression: '{}'",
+                query.key_expr()
+            );
+            continue;
+        };
         match ke.command().as_str() {
             "start" => {
-                // TODO: Need to parse a list of topics
-                // TODO: Need to consider the leading `/`
                 let topic = query.parameters().get("topic").unwrap_or("*");
                 let domain = query.parameters().get("domain").unwrap_or("0");
                 tracing::info!(
@@ -89,20 +96,26 @@ async fn main() -> Result<()> {
                     domain
                 );
                 // Here we would start the recording task
-                let result = if let Err(e) =
-                    recorder_handler.start(topic.to_owned(), domain.parse().unwrap())
-                {
+                let result = if let Err(e) = recorder_handler.start(topic.to_owned(), domain) {
                     tracing::error!("failed to start recording: {e}");
                     "failure".to_owned()
                 } else {
                     "success".to_owned()
                 };
-                let start = Start { result };
-                query
-                    .reply(query.key_expr(), serde_json::to_string(&start).unwrap())
+                let payload = match serde_json::to_string(&Start { result }) {
+                    Ok(payload) => payload,
+                    Err(e) => {
+                        tracing::error!("failed to serialize start response: {e}");
+                        continue;
+                    }
+                };
+                if let Err(e) = query
+                    .reply(query.key_expr(), payload)
                     .encoding(Encoding::TEXT_JSON)
                     .wait()
-                    .unwrap();
+                {
+                    tracing::error!("failed to send start response: {e}");
+                }
             }
             "stop" => {
                 tracing::info!("received stop command");
@@ -117,22 +130,38 @@ async fn main() -> Result<()> {
                         ("failure".to_owned(), "".to_owned())
                     }
                 };
-                let stop = Stop { result, filename };
-                query
-                    .reply(query.key_expr(), serde_json::to_string(&stop).unwrap())
+                let payload = match serde_json::to_string(&Stop { result, filename }) {
+                    Ok(payload) => payload,
+                    Err(e) => {
+                        tracing::error!("failed to serialize stop response: {e}");
+                        continue;
+                    }
+                };
+                if let Err(e) = query
+                    .reply(query.key_expr(), payload)
                     .encoding(Encoding::TEXT_JSON)
                     .wait()
-                    .unwrap();
+                {
+                    tracing::error!("failed to send stop response: {e}");
+                }
             }
             "status" => {
                 tracing::info!("received status command");
                 let status = recorder_handler.status();
-                let status = Status { status };
-                query
-                    .reply(query.key_expr(), serde_json::to_string(&status).unwrap())
+                let payload = match serde_json::to_string(&Status { status }) {
+                    Ok(payload) => payload,
+                    Err(e) => {
+                        tracing::error!("failed to serialize status response: {e}");
+                        continue;
+                    }
+                };
+                if let Err(e) = query
+                    .reply(query.key_expr(), payload)
                     .encoding(Encoding::TEXT_JSON)
                     .wait()
-                    .unwrap();
+                {
+                    tracing::error!("failed to send status response: {e}");
+                }
             }
             cmd => {
                 tracing::warn!("unknown command received: '{cmd}'");

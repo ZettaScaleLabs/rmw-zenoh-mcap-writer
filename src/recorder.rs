@@ -39,10 +39,15 @@ impl RecorderHandler {
         }
     }
 
-    pub fn start(&mut self, topic: String, domain: u32) -> Result<String> {
+    pub fn start(&mut self, topic: String, domain: &str) -> Result<String> {
         if self.task.is_some() {
             return Err(anyhow!("Recording task is already running"));
         }
+        let domain = domain
+            .parse::<u32>()
+            .map_err(|e| anyhow!("Invalid domain '{}': {}", domain, e))?;
+        // TODO: Need to parse a list of topics
+        // TODO: Need to consider the leading `/`
         let record_task = RecordTask::new(self.session.clone(), self.path.clone(), topic, domain);
         self.task = Some(record_task);
         Ok("Recording started".to_string())
