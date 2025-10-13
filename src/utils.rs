@@ -4,6 +4,7 @@
 //
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -31,8 +32,7 @@ pub struct BagMetadata {
     topics_with_message_count: Vec<String>,
     compression_format: String,
     compression_mode: String,
-    // TODO: Empty should be ~
-    //custom_data: HashMap<String, String>,
+    // TODO: Empty should be ~. Should we use HashMap<String, String>?
     custom_data: String,
     ros_distro: String,
 }
@@ -78,4 +78,105 @@ pub fn dds_type_to_ros_type(dds_type: &str) -> String {
     // remove _ in the final part of the string
     ros_type.pop();
     ros_type
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(remote = "Duration")]
+pub struct DurationDef {
+    #[serde(rename = "sec", getter = "Duration::num_minutes")]
+    secs: i64,
+    #[serde(rename = "nsec", getter = "Duration::subsec_nanos")]
+    nanos: i32,
+}
+
+fn default_duration() -> Duration {
+    Duration::nanoseconds(i64::MAX)
+}
+
+#[derive(Debug, Serialize)]
+pub struct QoSProfile {
+    history: String,
+    depth: Option<u32>,
+    reliability: String,
+    durability: String,
+    #[serde(with = "DurationDef")]
+    deadline: Duration,
+    #[serde(with = "DurationDef")]
+    lifespan: Duration,
+    liveliness: String,
+    #[serde(with = "DurationDef")]
+    liveliness_lease_duration: Duration,
+    avoid_ros_namespace_conventions: bool,
+}
+
+impl Default for QoSProfile {
+    fn default() -> Self {
+        QoSProfile {
+            history: "keep_last".to_string(),
+            depth: Some(10),
+            reliability: "reliable".to_string(),
+            durability: "volatile".to_string(),
+            deadline: default_duration(),
+            lifespan: default_duration(),
+            liveliness: "automatic".to_string(),
+            liveliness_lease_duration: default_duration(),
+            avoid_ros_namespace_conventions: false,
+        }
+    }
+}
+
+fn parse_zenoh_qos(zenoh_qos: &str) -> QoSProfile {
+    let mut qos_profile = QoSProfile::default();
+    let parts: Vec<&str> = zenoh_qos.split(':').collect();
+    // Reliable
+    if parts[0] == "2" {
+        qos_profile.reliability = "best_effort".to_string();
+    } else {
+        qos_profile.reliability = "reliable".to_string();
+    }
+    // Durability
+    if parts[1] == "1" {
+        qos_profile.durability = "transient_local".to_string();
+    } else {
+        qos_profile.durability = "volatile".to_string();
+    }
+    // History
+    let subparts = parts[2].split(',').collect::<Vec<&str>>();
+    if subparts[0] == "2" {
+        qos_profile.history = "keep_all".to_string();
+    } else {
+        qos_profile.history = "keep_last".to_string();
+        qos_profile.depth = Some(subparts[1].parse::<u32>().unwrap());
+    }
+    // Deadline
+    let subparts = parts[3].split(',').collect::<Vec<&str>>();
+    if subparts[0] != "" && subparts[1] != "" {
+        qos_profile.deadline = Duration::seconds(subparts[0].parse::<i64>().unwrap())
+            + Duration::nanoseconds(subparts[1].parse::<i32>().unwrap() as i64);
+    }
+    // Lifespan
+    let subparts = parts[4].split(',').collect::<Vec<&str>>();
+    if subparts[0] != "" && subparts[1] != "" {
+        qos_profile.lifespan = Duration::seconds(subparts[0].parse::<i64>().unwrap())
+            + Duration::nanoseconds(subparts[1].parse::<i32>().unwrap() as i64);
+    }
+    // Liveliness
+    let subparts = parts[5].split(',').collect::<Vec<&str>>();
+    if subparts[0] == "2" {
+        qos_profile.liveliness = "manual_by_topic".to_string();
+        if subparts[0] != "" && subparts[1] != "" {
+            qos_profile.liveliness_lease_duration =
+                Duration::seconds(subparts[1].parse::<i64>().unwrap())
+                    + Duration::nanoseconds(subparts[2].parse::<i32>().unwrap() as i64);
+        }
+    } else {
+        qos_profile.liveliness = "automatic".to_string();
+    }
+
+    qos_profile
+}
+
+/// Transform Zenoh QoS into a string
+pub fn zenoh_qos_to_string(zenoh_qos: &str) -> String {
+    serde_yaml::to_string(&vec![parse_zenoh_qos(zenoh_qos)]).unwrap()
 }

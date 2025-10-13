@@ -198,8 +198,7 @@ impl RecordTask {
                                 };
                                 if !channels_map.contains_key(&ke.topic().to_string()) {
                                     let metadata = BTreeMap::from([
-                                        // TODO: Use correct QoS
-                                        ("offered_qos_profiles".to_string(), ke.qos().to_string()),
+                                        ("offered_qos_profiles".to_string(), utils::zenoh_qos_to_string(ke.qos())),
                                         ("topic_type_hash".to_string(), ke.hash().to_string()),
                                     ]);
                                     // TODO: Should we deal with namespace?
@@ -230,7 +229,10 @@ impl RecordTask {
             // TODO: Write the metadata again at the final stage
             out.write_metadata(&Metadata {
                 name: "rosbag2".to_string(),
-                metadata: BTreeMap::new(),
+                metadata: BTreeMap::from([(
+                    "serialized_metadata".to_string(),
+                    metadata.to_yaml_string(),
+                )]),
             })
             .unwrap();
             out.finish().unwrap();
