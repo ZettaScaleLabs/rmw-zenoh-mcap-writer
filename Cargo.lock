@@ -2997,6 +2997,7 @@ dependencies = [
  "mcap",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
  "tracing",
  "zenoh",

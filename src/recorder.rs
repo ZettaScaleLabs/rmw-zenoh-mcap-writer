@@ -80,6 +80,7 @@ impl RecordTask {
         let (stop_tx, mut stop_rx) = oneshot::channel();
         let filename = format!("rosbag2_{}.mcap", Local::now().format("%Y_%m_%d_%H_%M_%S"));
         let fullpath = format!("{}/{}", path, filename);
+        let filename_clone = filename.clone();
         let handle = tokio::spawn(async move {
             tracing::info!("Started recording topic '{}' on domain {}", topic, domain);
             // create a hashmap to store schema (String => u16)
@@ -93,9 +94,13 @@ impl RecordTask {
                 Writer::with_options(BufWriter::new(fs::File::create(fullpath).unwrap()), options)
                     .unwrap();
             // TODO: Write the metadata
+            let metadata = utils::BagMetadata::new(&filename_clone);
             out.write_metadata(&Metadata {
                 name: "rosbag2".to_string(),
-                metadata: BTreeMap::new(),
+                metadata: BTreeMap::from([(
+                    "serialized_metadata".to_string(),
+                    metadata.to_yaml_string(),
+                )]),
             })
             .unwrap();
 
