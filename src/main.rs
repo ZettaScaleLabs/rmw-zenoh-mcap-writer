@@ -5,24 +5,18 @@
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
 use anyhow::{Result, anyhow};
+use clap::Parser;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use zenoh::{
-    Config, Wait,
+    Wait,
     bytes::Encoding,
     internal::{plugins::PluginsManager, runtime::RuntimeBuilder},
     key_expr::format::{kedefine, keformat},
 };
 
+mod args;
 mod recorder;
 mod utils;
-
-// TODO: Make it configurable
-const HTTP_PORT: u16 = 8000;
-// TODO: Make it configurable
-const DEFAULT_PATH: &str = ".";
-// TODO: Make it configurable
-const DEFAULT_ZENOHD: &str = "tcp/localhost:7447";
 
 kedefine!(
     pub(crate) ke_command: "@mcap/writer/${command:*}",
@@ -48,18 +42,8 @@ pub(crate) struct Status {
 async fn main() -> Result<()> {
     zenoh::init_log_from_env_or("info");
 
-    // TODO: Able to accept customized config file
-    let mut config: Config = Default::default();
-    config
-        .insert_json5("plugins/rest/http_port", &format!(r#""{HTTP_PORT}""#))
-        .and_then(|_| config.insert_json5("plugins/rest/__required__", "true"))
-        .map_err(|err| anyhow!("could not set REST HTTP port `{HTTP_PORT}`: {err}"))?;
-    config
-        .insert_json5(
-            "connect/endpoints",
-            &json!(vec![DEFAULT_ZENOHD]).to_string(),
-        )
-        .unwrap();
+    let args = args::Args::parse();
+    let config = args.into_config()?;
     tracing::info!("using config: {config:?}");
 
     // Plugin manager with REST plugin
@@ -82,7 +66,7 @@ async fn main() -> Result<()> {
 
     // Create a RecorderHandler
     let mut recorder_handler =
-        recorder::RecorderHandler::new(zsession.clone(), DEFAULT_PATH.to_string());
+        recorder::RecorderHandler::new(zsession.clone(), args.output_path().to_string());
 
     // Create a Queryable for the recorder
     let queryable_key_expr = keformat!(ke_command::formatter(), command = "*").unwrap();

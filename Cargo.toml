@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 chrono = "0.4.42"
+clap = { version = "4.5.48", features = ["derive", "env"] }
 futures = "0.3.26"
 mcap = "0.23.3"
 serde = "1.0.228"
@@ -19,6 +20,7 @@ zenoh = { version = "1.5.1", features = [
   "unstable",
   "shared-memory",
 ] }
+zenoh-config = { version = "1.5.1", default-features = false  }
 zenoh-plugin-rest = { version = "1.5.1", default-features = false, features = [
   "static_plugin",
 ]  }
