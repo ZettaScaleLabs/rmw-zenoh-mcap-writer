@@ -110,7 +110,7 @@ impl RecordTask {
         filename: String,
     ) -> Result<()> {
         let fullpath = format!("{}/{}", path, filename);
-        tracing::info!("Started recording topic '{}' on domain {}", topic, domain);
+        tracing::debug!("Started recording topic '{}' on domain {}", topic, domain);
         // create a hashmap to store schema (String => u16)
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
@@ -138,7 +138,7 @@ impl RecordTask {
             hash = "*",
         )
         .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
-        tracing::info!("Subscribing to key expression: {}", key_expr);
+        tracing::debug!("Subscribing to key expression: {}", key_expr);
         let subscriber = session
             .declare_subscriber(&key_expr)
             .await
@@ -158,7 +158,7 @@ impl RecordTask {
             qos = "*",
         )
         .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
-        tracing::info!("Subscribing to liveliness key expression: {}", key_expr);
+        tracing::debug!("Subscribing to liveliness key expression: {}", key_expr);
         let liveliness_subscriber = session
             .liveliness()
             .declare_subscriber(&key_expr)
@@ -175,10 +175,10 @@ impl RecordTask {
                             sample.payload()
                         );
                         if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
-                            tracing::info!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
+                            tracing::debug!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
                             let topic = "/".to_string() + ke.topic();  // The topic requires the leading '/'
                             if let Some(channel_id) = channels_map.get(&topic) {
-                                tracing::info!("Found existing channel_id: {}", channel_id);
+                                tracing::debug!("Found existing channel_id: {}", channel_id);
                                 let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
                                 out.write_to_known_channel(
                                     &MessageHeader {
@@ -209,20 +209,22 @@ impl RecordTask {
                             sample.payload()
                         );
                         if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
-                            tracing::info!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
+                            tracing::trace!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
                             let rostype = utils::dds_type_to_ros_type(ke.rostype());
 
                             // TODO: We need to send a query to get the data (ROS message type definition)
+                            // Check schemas
                             let schema_id = match schemas_map.get(&rostype) {
                                 Some(id) => *id,
                                 None => {
                                     let dummy_data = "TODO".as_bytes();
                                     let id = out.add_schema(&rostype, "ros2msg", dummy_data)?;
-                                    tracing::info!("Adding new schema for rostype: {} and id: {id}", rostype);
+                                    tracing::debug!("Adding new schema for rostype: {} and id: {id}", rostype);
                                     schemas_map.insert(rostype, id);
                                     id
                                 }
                             };
+                            // Check channels
                             if !channels_map.contains_key(&ke.topic().to_string()) {
                                 let metadata = BTreeMap::from([
                                     ("offered_qos_profiles".to_string(), utils::zenoh_qos_to_string(ke.qos())?),
@@ -238,7 +240,7 @@ impl RecordTask {
                                     &metadata,
                                 )?;
                                 channels_map.insert(topic.to_string(), channel_id);
-                                tracing::info!("Adding new channel for topic: {topic} with id: {channel_id}");
+                                tracing::debug!("Adding new channel for topic: {topic} with id: {channel_id}");
                             }
                         }
                     } else {
@@ -247,7 +249,7 @@ impl RecordTask {
                     }
                 },
                 _ = &mut stop_rx => {
-                    tracing::info!("Stop signal received.");
+                    tracing::debug!("Stop signal received.");
                     break;
                 }
             }
@@ -262,7 +264,7 @@ impl RecordTask {
             )]),
         })?;
         out.finish()?;
-        tracing::info!("Stopped recording topic '{}' on domain {}", topic, domain);
+        tracing::debug!("Stopped recording topic '{}' on domain {}", topic, domain);
         Ok(())
     }
 

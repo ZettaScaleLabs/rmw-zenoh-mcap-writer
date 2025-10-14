@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
 
     let args = args::Args::parse();
     let config = args.zenoh_config()?;
-    tracing::info!("using config: {config:?}");
+    tracing::debug!("MCAP Writer config: {config:?}");
 
     // Plugin manager with REST plugin
     let mut plugins_manager = PluginsManager::static_plugins_only();
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
                 let topic = query.parameters().get("topic").unwrap_or("*");
                 let domain = query.parameters().get("domain").unwrap_or("0");
                 tracing::info!(
-                    "received start command: topic='{:?}', domain='{:?}'",
+                    "Start reocrding with topic='{:?}', domain='{:?}'",
                     topic,
                     domain
                 );
@@ -118,11 +118,10 @@ async fn main() -> Result<()> {
                 }
             }
             "stop" => {
-                tracing::info!("received stop command");
                 // Here we would stop the recording task
                 let (result, filename) = match recorder_handler.stop() {
                     Ok(filename) => {
-                        tracing::info!("Recording stopped, saved to file: {}", filename);
+                        tracing::info!("Stop recording, saving to file: {filename}");
                         ("success".to_owned(), filename)
                     }
                     Err(e) => {
@@ -146,10 +145,14 @@ async fn main() -> Result<()> {
                 }
             }
             "status" => {
-                tracing::info!("received status command");
                 let status = recorder_handler.status();
-                let payload = match serde_json::to_string(&Status { status }) {
-                    Ok(payload) => payload,
+                let payload = match serde_json::to_string(&Status {
+                    status: status.clone(),
+                }) {
+                    Ok(payload) => {
+                        tracing::info!("The recorder current status: {status}");
+                        payload
+                    }
                     Err(e) => {
                         tracing::error!("failed to serialize status response: {e}");
                         continue;
