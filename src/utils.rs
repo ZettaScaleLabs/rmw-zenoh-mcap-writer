@@ -4,6 +4,7 @@
 //
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
+use anyhow::Result;
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
@@ -38,8 +39,8 @@ pub struct BagMetadata {
 }
 
 impl BagMetadata {
-    pub fn new(filename: &String) -> Self {
-        BagMetadata {
+    pub fn new(filename: &String) -> Result<Self> {
+        Ok(BagMetadata {
             version: 9,
             storage_identifier: "mcap".to_string(),
             relative_file_paths: vec![filename.to_owned()],
@@ -47,9 +48,7 @@ impl BagMetadata {
             duration: NanoDuration { nanoseconds: 0 },
             starting_time: StartingTime {
                 nanoseconds_since_epoch: {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap();
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
                     now.as_nanos()
                 },
             },
@@ -60,11 +59,11 @@ impl BagMetadata {
             custom_data: "~".to_string(),
             // TODO: Get the distro from registry
             ros_distro: "rolling".to_string(),
-        }
+        })
     }
 
-    pub fn to_yaml_string(&self) -> String {
-        serde_yaml::to_string(self).unwrap()
+    pub fn to_yaml_string(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(self)?)
     }
 }
 
@@ -125,7 +124,7 @@ impl Default for QoSProfile {
     }
 }
 
-fn parse_zenoh_qos(zenoh_qos: &str) -> QoSProfile {
+fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
     let mut qos_profile = QoSProfile::default();
     let parts: Vec<&str> = zenoh_qos.split(':').collect();
     // Reliable
@@ -146,37 +145,36 @@ fn parse_zenoh_qos(zenoh_qos: &str) -> QoSProfile {
         qos_profile.history = "keep_all".to_string();
     } else {
         qos_profile.history = "keep_last".to_string();
-        qos_profile.depth = Some(subparts[1].parse::<u32>().unwrap());
+        qos_profile.depth = Some(subparts[1].parse::<u32>()?);
     }
     // Deadline
     let subparts = parts[3].split(',').collect::<Vec<&str>>();
     if subparts[0] != "" && subparts[1] != "" {
-        qos_profile.deadline = Duration::seconds(subparts[0].parse::<i64>().unwrap())
-            + Duration::nanoseconds(subparts[1].parse::<i32>().unwrap() as i64);
+        qos_profile.deadline = Duration::seconds(subparts[0].parse::<i64>()?)
+            + Duration::nanoseconds(subparts[1].parse::<i32>()? as i64);
     }
     // Lifespan
     let subparts = parts[4].split(',').collect::<Vec<&str>>();
     if subparts[0] != "" && subparts[1] != "" {
-        qos_profile.lifespan = Duration::seconds(subparts[0].parse::<i64>().unwrap())
-            + Duration::nanoseconds(subparts[1].parse::<i32>().unwrap() as i64);
+        qos_profile.lifespan = Duration::seconds(subparts[0].parse::<i64>()?)
+            + Duration::nanoseconds(subparts[1].parse::<i32>()? as i64);
     }
     // Liveliness
     let subparts = parts[5].split(',').collect::<Vec<&str>>();
     if subparts[0] == "2" {
         qos_profile.liveliness = "manual_by_topic".to_string();
         if subparts[0] != "" && subparts[1] != "" {
-            qos_profile.liveliness_lease_duration =
-                Duration::seconds(subparts[1].parse::<i64>().unwrap())
-                    + Duration::nanoseconds(subparts[2].parse::<i32>().unwrap() as i64);
+            qos_profile.liveliness_lease_duration = Duration::seconds(subparts[1].parse::<i64>()?)
+                + Duration::nanoseconds(subparts[2].parse::<i32>()? as i64);
         }
     } else {
         qos_profile.liveliness = "automatic".to_string();
     }
 
-    qos_profile
+    Ok(qos_profile)
 }
 
 /// Transform Zenoh QoS into a string
-pub fn zenoh_qos_to_string(zenoh_qos: &str) -> String {
-    serde_yaml::to_string(&vec![parse_zenoh_qos(zenoh_qos)]).unwrap()
+pub fn zenoh_qos_to_string(zenoh_qos: &str) -> Result<String> {
+    Ok(serde_yaml::to_string(&vec![parse_zenoh_qos(zenoh_qos)?])?)
 }

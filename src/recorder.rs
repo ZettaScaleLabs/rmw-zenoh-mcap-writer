@@ -119,12 +119,12 @@ impl RecordTask {
             .compression(None);
         let mut out = Writer::with_options(BufWriter::new(fs::File::create(fullpath)?), options)?;
         // TODO: Write the metadata
-        let metadata = utils::BagMetadata::new(&filename);
+        let metadata = utils::BagMetadata::new(&filename)?;
         out.write_metadata(&Metadata {
             name: "rosbag2".to_string(),
             metadata: BTreeMap::from([(
                 "serialized_metadata".to_string(),
-                metadata.to_yaml_string(),
+                metadata.to_yaml_string()?,
             )]),
         })?;
 
@@ -224,7 +224,7 @@ impl RecordTask {
                             };
                             if !channels_map.contains_key(&ke.topic().to_string()) {
                                 let metadata = BTreeMap::from([
-                                    ("offered_qos_profiles".to_string(), utils::zenoh_qos_to_string(ke.qos())),
+                                    ("offered_qos_profiles".to_string(), utils::zenoh_qos_to_string(ke.qos())?),
                                     ("topic_type_hash".to_string(), ke.hash().to_string()),
                                 ]);
                                 // TODO: Should we deal with namespace?
@@ -257,7 +257,7 @@ impl RecordTask {
             name: "rosbag2".to_string(),
             metadata: BTreeMap::from([(
                 "serialized_metadata".to_string(),
-                metadata.to_yaml_string(),
+                metadata.to_yaml_string()?,
             )]),
         })?;
         out.finish()?;
