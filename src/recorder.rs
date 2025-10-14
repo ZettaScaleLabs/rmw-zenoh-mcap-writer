@@ -89,6 +89,7 @@ impl RecordTask {
             if let Err(e) =
                 RecordTask::write_mcap(session, path, topic, domain, stop_rx, filename_clone).await
             {
+                // TODO: Able to recover if the task fails
                 tracing::error!("Fail while running the record task: {e}");
             }
         });
@@ -175,7 +176,7 @@ impl RecordTask {
                         );
                         if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
                             tracing::info!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
-                            let topic = "/".to_string() + &ke.topic();  // The topic requires the leading '/'
+                            let topic = "/".to_string() + ke.topic();  // The topic requires the leading '/'
                             if let Some(channel_id) = channels_map.get(&topic) {
                                 tracing::info!("Found existing channel_id: {}", channel_id);
                                 let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
@@ -209,7 +210,7 @@ impl RecordTask {
                         );
                         if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
                             tracing::info!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
-                            let rostype = utils::dds_type_to_ros_type(&ke.rostype());
+                            let rostype = utils::dds_type_to_ros_type(ke.rostype());
 
                             // TODO: We need to send a query to get the data (ROS message type definition)
                             let schema_id = match schemas_map.get(&rostype) {

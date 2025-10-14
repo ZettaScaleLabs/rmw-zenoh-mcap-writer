@@ -149,13 +149,13 @@ fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
     }
     // Deadline
     let subparts = parts[3].split(',').collect::<Vec<&str>>();
-    if subparts[0] != "" && subparts[1] != "" {
+    if !subparts[0].is_empty() && !subparts[1].is_empty() {
         qos_profile.deadline = Duration::seconds(subparts[0].parse::<i64>()?)
             + Duration::nanoseconds(subparts[1].parse::<i32>()? as i64);
     }
     // Lifespan
     let subparts = parts[4].split(',').collect::<Vec<&str>>();
-    if subparts[0] != "" && subparts[1] != "" {
+    if !subparts[0].is_empty() && !subparts[1].is_empty() {
         qos_profile.lifespan = Duration::seconds(subparts[0].parse::<i64>()?)
             + Duration::nanoseconds(subparts[1].parse::<i32>()? as i64);
     }
@@ -163,7 +163,7 @@ fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
     let subparts = parts[5].split(',').collect::<Vec<&str>>();
     if subparts[0] == "2" {
         qos_profile.liveliness = "manual_by_topic".to_string();
-        if subparts[0] != "" && subparts[1] != "" {
+        if !subparts[0].is_empty() && !subparts[1].is_empty() {
             qos_profile.liveliness_lease_duration = Duration::seconds(subparts[1].parse::<i64>()?)
                 + Duration::nanoseconds(subparts[2].parse::<i32>()? as i64);
         }

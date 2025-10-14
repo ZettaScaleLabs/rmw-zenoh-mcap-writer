@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
     zenoh::init_log_from_env_or("info");
 
     let args = args::Args::parse();
-    let config = args.into_config()?;
+    let config = args.zenoh_config()?;
     tracing::info!("using config: {config:?}");
 
     // Plugin manager with REST plugin
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         .start()
         .await
         .map_err(|err| anyhow!("failed to start Zenoh runtime: {err}"))?;
-    let zsession = zenoh::session::init(runtime.into())
+    let zsession = zenoh::session::init(runtime)
         .await
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
 

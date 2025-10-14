@@ -45,7 +45,7 @@ impl Args {
         &self.output_path
     }
 
-    pub(crate) fn into_config(&self) -> Result<Config> {
+    pub(crate) fn zenoh_config(&self) -> Result<Config> {
         let mut config = if let Some(fname) = self.config.as_ref() {
             Config::from_file(fname)
                 .map_err(|err| anyhow!("{err}"))
