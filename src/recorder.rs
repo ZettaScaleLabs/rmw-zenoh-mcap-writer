@@ -53,12 +53,14 @@ impl RecorderHandler {
         Ok("Recording started".to_string())
     }
 
-    pub fn status(&self) -> String {
-        if self.task.is_some() {
-            "recording".to_string()
-        } else {
-            "stopped".to_string()
+    pub fn status(&mut self) -> String {
+        if let Some(ref task) = self.task {
+            if !task.is_finished() {
+                return "recording".to_string();
+            }
         }
+        self.task.take(); // Drop the task
+        return "stopped".to_string();
     }
 
     pub fn stop(&mut self) -> Result<String> {
@@ -89,7 +91,6 @@ impl RecordTask {
             if let Err(e) =
                 RecordTask::write_mcap(session, path, topic, domain, stop_rx, filename_clone).await
             {
-                // TODO: Able to recover if the task fails
                 tracing::error!("Fail while running the record task: {e}");
             }
         });
@@ -271,5 +272,9 @@ impl RecordTask {
     async fn stop(self) {
         let _ = self.stop_tx.send(());
         let _ = self.handle.await;
+    }
+
+    fn is_finished(&self) -> bool {
+        self.handle.is_finished()
     }
 }
