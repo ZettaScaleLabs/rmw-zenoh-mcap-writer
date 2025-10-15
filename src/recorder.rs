@@ -12,7 +12,11 @@ use mcap::{Writer, records::MessageHeader, write::Metadata};
 use tokio::sync::oneshot;
 use zenoh::{
     Session,
-    key_expr::format::{kedefine, keformat},
+    key_expr::{
+        OwnedKeyExpr,
+        format::{kedefine, keformat},
+        keyexpr,
+    },
     sample::SampleKind,
 };
 
@@ -46,9 +50,20 @@ impl RecorderHandler {
         let domain = domain
             .parse::<u32>()
             .map_err(|e| anyhow!("Invalid domain '{}': {}", domain, e))?;
-        // TODO: Need to parse a list of topics
-        // TODO: Need to consider the leading `/`
-        let record_task = RecordTask::new(self.session.clone(), self.path.clone(), topic, domain);
+        let topics: Vec<OwnedKeyExpr> = topic
+            .split(',')
+            .map(|s| {
+                // Remove the space between string
+                let trimmed = s.trim();
+                // Remove leading "/"
+                trimmed.strip_prefix('/').unwrap_or(trimmed)
+            })
+            // Remove the empty string
+            .filter(|s| !s.is_empty())
+            // Transform into key_expr
+            .map(|s| OwnedKeyExpr::new(s).unwrap())
+            .collect();
+        let record_task = RecordTask::new(self.session.clone(), self.path.clone(), topics, domain);
         self.task = Some(record_task);
         Ok("Recording started".to_string())
     }
@@ -83,13 +98,13 @@ struct RecordTask {
 }
 
 impl RecordTask {
-    fn new(session: Session, path: String, topic: String, domain: u32) -> Self {
+    fn new(session: Session, path: String, topics: Vec<OwnedKeyExpr>, domain: u32) -> Self {
         let (stop_tx, stop_rx) = oneshot::channel();
         let filename = format!("rosbag2_{}.mcap", Local::now().format("%Y_%m_%d_%H_%M_%S"));
         let filename_clone = filename.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) =
-                RecordTask::write_mcap(session, path, topic, domain, stop_rx, filename_clone).await
+                RecordTask::write_mcap(session, path, topics, domain, stop_rx, filename_clone).await
             {
                 tracing::error!("Fail while running the record task: {e}");
             }
@@ -105,13 +120,17 @@ impl RecordTask {
     async fn write_mcap(
         session: Session,
         path: String,
-        topic: String,
+        topics: Vec<OwnedKeyExpr>,
         domain: u32,
         mut stop_rx: oneshot::Receiver<()>,
         filename: String,
     ) -> Result<()> {
         let fullpath = format!("{}/{}", path, filename);
-        tracing::debug!("Started recording topic '{}' on domain {}", topic, domain);
+        tracing::debug!(
+            "Started recording topic '{:?}' on domain {}",
+            topics,
+            domain
+        );
         // create a hashmap to store schema (String => u16)
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
@@ -134,7 +153,7 @@ impl RecordTask {
         let key_expr = keformat!(
             ke_rostopic::formatter(),
             domain = domain,
-            topic = &topic,
+            topic = "*",
             rostype = "*",
             hash = "*",
         )
@@ -153,7 +172,7 @@ impl RecordTask {
             node = "*",
             entity = "*",
             node_name = "*",
-            topic = &topic,
+            topic = "*",
             rostype = "*",
             hash = "*",
             qos = "*",
@@ -177,6 +196,12 @@ impl RecordTask {
                         );
                         if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
                             tracing::debug!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
+                            // Filter the topic which is not recorded
+                            let any_match = topics.iter().any(|t| t.includes(ke.topic()));
+                            if !any_match {
+                                tracing::debug!("topic {} is not in the recorded list, skipping...", ke.topic());
+                                continue;
+                            }
                             let topic = "/".to_string() + ke.topic();  // The topic requires the leading '/'
                             if let Some(channel_id) = channels_map.get(&topic) {
                                 tracing::debug!("Found existing channel_id: {}", channel_id);
@@ -190,6 +215,8 @@ impl RecordTask {
                                     },
                                     sample.payload().to_bytes().as_ref(),
                                 )?;
+                            } else {
+                                tracing::debug!("Skip the messages because there is no existing channel_id for topic: {}", topic);
                             }
 
                         }
@@ -210,7 +237,21 @@ impl RecordTask {
                             sample.payload()
                         );
                         if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
-                            tracing::trace!("rostype: {}, hash: {}, qos: {}", ke.rostype(), ke.hash(), ke.qos());
+                            tracing::trace!("topic: {}, rostype: {}, hash: {}, qos: {}", ke.topic(), ke.rostype(), ke.hash(), ke.qos());
+                            // TODO: Should we deal with namespace?
+                            // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw
+                            let original_topic = ke.topic().replace("%", "/").to_string();
+                            if let Ok(compare_key) = keyexpr::new(&original_topic[1..]) {
+                                // Filter the topic which is not recorded
+                                let any_match = topics.iter().any(|t| t.includes(compare_key));
+                                if !any_match {
+                                    tracing::debug!("topic {} is not in the recorded list, skipping...", ke.topic());
+                                    continue;
+                                }
+                            } else {
+                                tracing::warn!("Something wrong with the topic name: {original_topic}");
+                                continue;
+                            }
                             let rostype = utils::dds_type_to_ros_type(ke.rostype());
 
                             // TODO: We need to send a query to get the data (ROS message type definition)
@@ -231,17 +272,14 @@ impl RecordTask {
                                     ("offered_qos_profiles".to_string(), utils::zenoh_qos_to_string(ke.qos())?),
                                     ("topic_type_hash".to_string(), ke.hash().to_string()),
                                 ]);
-                                // TODO: Should we deal with namespace?
-                                // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw
-                                let topic = ke.topic().replace('%', "/").to_string();
                                 let channel_id = out.add_channel(
                                     schema_id,
-                                    &topic,
+                                    &original_topic,
                                     "cdr",
                                     &metadata,
                                 )?;
-                                channels_map.insert(topic.to_string(), channel_id);
-                                tracing::debug!("Adding new channel for topic: {topic} with id: {channel_id}");
+                                channels_map.insert(original_topic.to_string(), channel_id);
+                                tracing::debug!("Adding new channel for topic: {original_topic} with id: {channel_id}");
                             }
                         }
                     } else {
@@ -265,7 +303,11 @@ impl RecordTask {
             )]),
         })?;
         out.finish()?;
-        tracing::debug!("Stopped recording topic '{}' on domain {}", topic, domain);
+        tracing::debug!(
+            "Stopped recording topic '{:?}' on domain {}",
+            topics,
+            domain
+        );
         Ok(())
     }
 
