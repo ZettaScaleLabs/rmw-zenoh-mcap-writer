@@ -39,7 +39,7 @@ pub struct BagMetadata {
 }
 
 impl BagMetadata {
-    pub fn new(filename: &String) -> Result<Self> {
+    pub fn new(filename: &String, ros_distro: String) -> Result<Self> {
         Ok(BagMetadata {
             version: 9,
             storage_identifier: "mcap".to_string(),
@@ -57,8 +57,7 @@ impl BagMetadata {
             compression_format: "".to_string(),
             compression_mode: "".to_string(),
             custom_data: "~".to_string(),
-            // TODO: Get the distro from registry
-            ros_distro: "rolling".to_string(),
+            ros_distro,
         })
     }
 

@@ -16,6 +16,7 @@ use zenoh::{
 
 mod args;
 mod recorder;
+mod registry;
 mod utils;
 
 kedefine!(
@@ -64,6 +65,10 @@ async fn main() -> Result<()> {
         .await
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
 
+    // Get the ROS 2 distro
+    let ros_distro = registry::get_ros_distro(zsession.clone()).await;
+    tracing::debug!("The ROS_DISTRO is {ros_distro}");
+
     // Create a RecorderHandler
     let mut recorder_handler =
         recorder::RecorderHandler::new(zsession.clone(), args.output_path().to_string());
@@ -96,7 +101,9 @@ async fn main() -> Result<()> {
                     domain
                 );
                 // Here we would start the recording task
-                let result = if let Err(e) = recorder_handler.start(topic.to_owned(), domain) {
+                let result = if let Err(e) =
+                    recorder_handler.start(topic.to_owned(), domain, ros_distro.clone())
+                {
                     tracing::error!("failed to start recording: {e}");
                     "failure".to_owned()
                 } else {

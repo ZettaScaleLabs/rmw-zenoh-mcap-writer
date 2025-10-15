@@ -43,7 +43,7 @@ impl RecorderHandler {
         }
     }
 
-    pub fn start(&mut self, topic: String, domain: &str) -> Result<String> {
+    pub fn start(&mut self, topic: String, domain: &str, ros_distro: String) -> Result<String> {
         if self.task.is_some() {
             return Err(anyhow!("Recording task is already running"));
         }
@@ -63,7 +63,13 @@ impl RecorderHandler {
             // Transform into key_expr
             .map(|s| OwnedKeyExpr::new(s).unwrap())
             .collect();
-        let record_task = RecordTask::new(self.session.clone(), self.path.clone(), topics, domain);
+        let record_task = RecordTask::new(
+            self.session.clone(),
+            self.path.clone(),
+            topics,
+            domain,
+            ros_distro,
+        );
         self.task = Some(record_task);
         Ok("Recording started".to_string())
     }
@@ -98,13 +104,27 @@ struct RecordTask {
 }
 
 impl RecordTask {
-    fn new(session: Session, path: String, topics: Vec<OwnedKeyExpr>, domain: u32) -> Self {
+    fn new(
+        session: Session,
+        path: String,
+        topics: Vec<OwnedKeyExpr>,
+        domain: u32,
+        ros_distro: String,
+    ) -> Self {
         let (stop_tx, stop_rx) = oneshot::channel();
         let filename = format!("rosbag2_{}.mcap", Local::now().format("%Y_%m_%d_%H_%M_%S"));
         let filename_clone = filename.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) =
-                RecordTask::write_mcap(session, path, topics, domain, stop_rx, filename_clone).await
+            if let Err(e) = RecordTask::write_mcap(
+                session,
+                path,
+                topics,
+                domain,
+                stop_rx,
+                filename_clone,
+                ros_distro,
+            )
+            .await
             {
                 tracing::error!("Fail while running the record task: {e}");
             }
@@ -124,6 +144,7 @@ impl RecordTask {
         domain: u32,
         mut stop_rx: oneshot::Receiver<()>,
         filename: String,
+        ros_distro: String,
     ) -> Result<()> {
         let fullpath = format!("{}/{}", path, filename);
         tracing::debug!(
@@ -140,7 +161,7 @@ impl RecordTask {
             .compression(None);
         let mut out = Writer::with_options(BufWriter::new(fs::File::create(fullpath)?), options)?;
         // TODO: Write the metadata
-        let metadata = utils::BagMetadata::new(&filename)?;
+        let metadata = utils::BagMetadata::new(&filename, ros_distro)?;
         out.write_metadata(&Metadata {
             name: "rosbag2".to_string(),
             metadata: BTreeMap::from([(
