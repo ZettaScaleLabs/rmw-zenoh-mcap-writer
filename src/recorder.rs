@@ -69,13 +69,13 @@ impl RecorderHandler {
     }
 
     pub fn status(&mut self) -> String {
-        if let Some(ref task) = self.task {
-            if !task.is_finished() {
-                return "recording".to_string();
-            }
+        if let Some(ref task) = self.task
+            && !task.is_finished()
+        {
+            return "recording".to_string();
         }
         self.task.take(); // Drop the task
-        return "stopped".to_string();
+        "stopped".to_string()
     }
 
     pub fn stop(&mut self) -> Result<String> {
