@@ -20,6 +20,7 @@ use zenoh::{
     sample::SampleKind,
 };
 
+use crate::registry;
 use crate::utils;
 
 kedefine!(
@@ -279,16 +280,22 @@ impl RecordTask {
                             }
                             let rostype = utils::dds_type_to_ros_type(ke.rostype());
 
-                            // TODO: We need to send a query to get the data (ROS message type definition)
                             // Check schemas
                             let schema_id = match schemas_map.get(&rostype) {
                                 Some(id) => *id,
                                 None => {
-                                    let dummy_data = "TODO".as_bytes();
-                                    let id = out.add_schema(&rostype, "ros2msg", dummy_data)?;
-                                    tracing::debug!("Adding new schema for rostype: {} and id: {id}", rostype);
-                                    schemas_map.insert(rostype, id);
-                                    id
+                                    match registry::get_ros_msg_data(session.clone(), &rostype).await {
+                                        Ok(ros_msg_data) => {
+                                            let id = out.add_schema(&rostype, "ros2msg", ros_msg_data.as_bytes())?;
+                                            tracing::debug!("Adding new schema for id: {id}, rostype: {rostype}, data: {ros_msg_data}");
+                                            schemas_map.insert(rostype, id);
+                                            id
+                                        },
+                                        Err(e) => {
+                                            tracing::warn!("Unable to get the ROS message data of {rostype}, skipping...: {e}");
+                                            continue;
+                                        }
+                                    }
                                 }
                             };
                             // Check channels
