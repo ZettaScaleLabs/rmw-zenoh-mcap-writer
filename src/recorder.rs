@@ -155,12 +155,16 @@ impl RecordTask {
         // create a hashmap to store schema (String => u16)
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
+
+        // MCAP Writer
         let options = mcap::WriteOptions::default()
             .profile("ros2")
             .calculate_chunk_crcs(false)
             .compression(None);
         let mut out = Writer::with_options(BufWriter::new(fs::File::create(fullpath)?), options)?;
-        // TODO: Write the metadata
+
+        // Write the metadata
+        // TODO: the metadata should be updated
         let metadata = utils::BagMetadata::new(&filename, ros_distro)?;
         out.write_metadata(&Metadata {
             name: "rosbag2".to_string(),
@@ -315,7 +319,7 @@ impl RecordTask {
             }
         }
 
-        // TODO: Write the metadata again at the final stage
+        // Write the metadata again at the final stage
         out.write_metadata(&Metadata {
             name: "rosbag2".to_string(),
             metadata: BTreeMap::from([(
