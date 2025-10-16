@@ -19,6 +19,9 @@ mod recorder;
 mod registry;
 mod utils;
 
+const DEFAULT_DOMAIN: &str = "0";
+const DEFAULT_TOPIC: &str = "**";
+
 kedefine!(
     pub(crate) ke_command: "@mcap/writer/${command:*}",
 );
@@ -93,8 +96,8 @@ async fn main() -> Result<()> {
         };
         match ke.command().as_str() {
             "start" => {
-                let topic = query.parameters().get("topic").unwrap_or("*");
-                let domain = query.parameters().get("domain").unwrap_or("0");
+                let topic = query.parameters().get("topic").unwrap_or(DEFAULT_TOPIC);
+                let domain = query.parameters().get("domain").unwrap_or(DEFAULT_DOMAIN);
                 tracing::info!(
                     "Start reocrding with topic='{:?}', domain='{:?}'",
                     topic,
