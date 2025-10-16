@@ -33,14 +33,14 @@ kedefine!(
     pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/MP/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
-pub struct RecorderHandler {
+pub(crate) struct RecorderHandler {
     session: Session,
     path: String,
     task: Option<RecordTask>,
 }
 
 impl RecorderHandler {
-    pub fn new(session: Session, path: String) -> Self {
+    pub(crate) fn new(session: Session, path: String) -> Self {
         Self {
             session,
             path,
@@ -48,7 +48,12 @@ impl RecorderHandler {
         }
     }
 
-    pub fn start(&mut self, topic: String, domain: &str, ros_distro: String) -> Result<String> {
+    pub(crate) fn start(
+        &mut self,
+        topic: String,
+        domain: &str,
+        ros_distro: String,
+    ) -> Result<String> {
         if self.task.is_some() {
             return Err(anyhow!("Recording task is already running"));
         }
@@ -79,7 +84,7 @@ impl RecorderHandler {
         Ok("Recording started".to_string())
     }
 
-    pub fn status(&mut self) -> String {
+    pub(crate) fn status(&mut self) -> String {
         if let Some(ref task) = self.task
             && !task.is_finished()
         {
@@ -89,7 +94,7 @@ impl RecorderHandler {
         "stopped".to_string()
     }
 
-    pub fn stop(&mut self) -> Result<String> {
+    pub(crate) fn stop(&mut self) -> Result<String> {
         if let Some(task) = self.task.take() {
             let filename = task.filename.clone();
             tokio::spawn(async move {

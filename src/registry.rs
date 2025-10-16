@@ -26,7 +26,7 @@ async fn get_ros_distro_from_registry(zsession: Session) -> Result<String> {
     Ok(ros_distro.to_string())
 }
 
-pub async fn get_ros_distro(zsession: Session) -> String {
+pub(crate) async fn get_ros_distro(zsession: Session) -> String {
     get_ros_distro_from_registry(zsession)
         .await
         .unwrap_or_else(|e| {
@@ -35,7 +35,10 @@ pub async fn get_ros_distro(zsession: Session) -> String {
         })
 }
 
-pub async fn get_ros_msg_data_from_registry(zsession: Session, rostype: &String) -> Result<String> {
+pub(crate) async fn get_ros_msg_data_from_registry(
+    zsession: Session,
+    rostype: &String,
+) -> Result<String> {
     let key = format!("@ros2_types/{}?format=Mcap", rostype);
     let replies = zsession
         .get(key)
@@ -52,6 +55,6 @@ pub async fn get_ros_msg_data_from_registry(zsession: Session, rostype: &String)
     Ok(ros_data.to_string())
 }
 
-pub async fn get_ros_msg_data(zsession: Session, rostype: &String) -> Result<String> {
+pub(crate) async fn get_ros_msg_data(zsession: Session, rostype: &String) -> Result<String> {
     get_ros_msg_data_from_registry(zsession, rostype).await
 }
