@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 chrono = "0.4.42"
-clap = { version = "4.5.48", features = ["derive", "env"] }
+clap = { version = "4.5.49", features = ["derive", "env"] }
 futures = "0.3.26"
 mcap = "0.23.3"
 serde = "1.0.228"
@@ -14,13 +14,13 @@ serde_json = "1.0.145"
 serde_yaml = "0.9.34"
 tokio = { version = "1.45.1", default-features = false } # Default features are disabled due to some crates' requirements
 tracing = "0.1.41"
-zenoh = { version = "1.5.1", features = [
+zenoh = { version = "1.6.1", features = [
   "plugins",
   "internal",
   "unstable",
   "shared-memory",
 ] }
-zenoh-config = { version = "1.5.1", default-features = false  }
-zenoh-plugin-rest = { version = "1.5.1", default-features = false, features = [
+zenoh-config = { version = "1.6.1", default-features = false  }
+zenoh-plugin-rest = { version = "1.6.1", default-features = false, features = [
   "static_plugin",
 ]  }
