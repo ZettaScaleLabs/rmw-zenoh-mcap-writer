@@ -201,7 +201,13 @@ else:
 
 ### In a Docker image
 
-TODO
+```bash
+# Build the image
+docker build -t rmw-zenoh-mcap-writer .
+# Run the container
+# Note that you can mount volume if you don't want to put the recorded file inside the container
+docker run --network host --rm -it rmw-zenoh-mcap-writer
+```
 
 ### On your host
 
@@ -215,4 +221,41 @@ cargo build --release
 
 ## Usage
 
-TODO
+You can found the binary under `target` after building the project.
+
+```bash
+$ ./target/release/rmw-zenoh-mcap-writer -h
+
+Usage: rmw-zenoh-mcap-writer [OPTIONS]
+
+Options:
+  -c, --config <PATH>            The configuration file. Currently, this file must be a valid JSON5 or YAML file
+  -l, --listen <ENDPOINT>        Locators on which this router will listen for incoming sessions. Repeat this option to open several listeners
+  -e, --connect <ENDPOINT>       A peer locator this router will try to connect to. Repeat this option to connect to several peers
+      --no-multicast-scouting    By default zenohd replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature
+      --rest-http-port <SOCKET>  Configures HTTP interface for the REST API (enabled by default on port 8000). Accepted values: - a port number - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface) - `none` to disable the REST API
+  -o, --output-path <PATH>       Directory where to store the recorded files [default: .]
+  -h, --help                     Print help
+```
+
+* Run the `rmw_zenohd` and [ros2-types-registry](https://github.com/ZettaScaleLabs/ros2-types-registry) first.
+
+* Run the `rmw-zenoh-mcap-writer` and connect to rmw_zenohd.
+  * Modify the localhost to your `rmw_zenohd` IP.
+  * `--rest-http-port`: the HTTP port to receive REST API commands.
+  * `-o`: where to put the recorded files.
+
+```bash
+./target/release/rmw-zenoh-mcap-writer -e tcp/localhost:7447 --rest-http-port 8000 -o .
+```
+
+* Then you can either use REST or Zenoh API to control the recording.
+
+```bash
+# Start to record
+curl -X GET 'http://localhost:8000/@mcap/writer/start'
+# Get the recording status
+curl -X GET 'http://localhost:8000/@mcap/writer/status'
+# Stop the recording
+curl -X GET 'http://localhost:8000/@mcap/writer/stop'
+```
