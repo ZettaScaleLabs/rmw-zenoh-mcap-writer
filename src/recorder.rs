@@ -24,9 +24,13 @@ use crate::registry;
 use crate::utils;
 
 kedefine!(
-    pub(crate) ke_rostopic: "${domain:*}/${topic:*}/${rostype:*}/${hash:*}",
-    // TODO: Should we consider mangled_enclave and mangled_namespace
-    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/MP/%/%/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
+    // The format of ROS topic is Domain/Topic/ROSType/Hash
+    // However, there might be several chunks splitted by `/` in Topic,
+    // so we can't parse the key expression easily.
+    // Instead, we will parse it with a customized function.
+    pub(crate) ke_sub_rostopic: "${domain:*}/${topic:**}",
+    // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
+    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/MP/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
 pub struct RecorderHandler {
@@ -176,14 +180,8 @@ impl RecordTask {
         })?;
 
         // Subscribe to the topic
-        let key_expr = keformat!(
-            ke_rostopic::formatter(),
-            domain = domain,
-            topic = "*",
-            rostype = "*",
-            hash = "*",
-        )
-        .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
+        let key_expr = keformat!(ke_sub_rostopic::formatter(), domain = domain, topic = "**",)
+            .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
         tracing::debug!("Subscribing to key expression: {}", key_expr);
         let subscriber = session
             .declare_subscriber(&key_expr)
@@ -197,6 +195,8 @@ impl RecordTask {
             zid = "*",
             node = "*",
             entity = "*",
+            enclave = "*",
+            namespace = "*",
             node_name = "*",
             topic = "*",
             rostype = "*",
@@ -220,15 +220,19 @@ impl RecordTask {
                             sample.key_expr(),
                             sample.payload()
                         );
-                        if let Ok(ke) = ke_rostopic::parse(sample.key_expr()) {
-                            tracing::debug!("topic: {}, rostype: {}, hash: {}", ke.topic(), ke.rostype(), ke.hash());
+                        if let Ok((_domain, topic, rostype, hash)) = utils::parse_subscription_ros_keyepxr(sample.key_expr()) {
+                            tracing::debug!("topic: {}, rostype: {}, hash: {}", topic, rostype, hash);
+                            let ros_keyexpr = if let Ok(k) = keyexpr::new(&topic) { k } else {
+                                tracing::warn!("Unable to transform the topic name {topic} to keyexpr");
+                                continue;
+                            };
                             // Filter the topic which is not recorded
-                            let any_match = topics.iter().any(|t| t.includes(ke.topic()));
+                            let any_match = topics.iter().any(|t| t.includes(ros_keyexpr));
                             if !any_match {
-                                tracing::debug!("topic {} is not in the recorded list, skipping...", ke.topic());
+                                tracing::debug!("topic {} is not in the recorded list, skipping...", topic);
                                 continue;
                             }
-                            let topic = "/".to_string() + ke.topic();  // The topic requires the leading '/'
+                            let topic = "/".to_string() + &topic;  // The topic requires the leading '/'
                             if let Some(channel_id) = channels_map.get(&topic) {
                                 tracing::debug!("Found existing channel_id: {}", channel_id);
                                 let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
@@ -245,6 +249,8 @@ impl RecordTask {
                                 tracing::debug!("Skip the messages because there is no existing channel_id for topic: {}", topic);
                             }
 
+                        } else {
+                            tracing::warn!("Something wrong when parsing the topic name: {}", sample.key_expr());
                         }
                     } else {
                         tracing::error!("Error receiving sample");
@@ -264,14 +270,13 @@ impl RecordTask {
                         );
                         if let Ok(ke) = ke_graphcache::parse(sample.key_expr()) {
                             tracing::trace!("topic: {}, rostype: {}, hash: {}, qos: {}", ke.topic(), ke.rostype(), ke.hash(), ke.qos());
-                            // TODO: Should we deal with namespace?
                             // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw
                             let original_topic = ke.topic().replace("%", "/").to_string();
                             if let Ok(compare_key) = keyexpr::new(&original_topic[1..]) {
                                 // Filter the topic which is not recorded
                                 let any_match = topics.iter().any(|t| t.includes(compare_key));
                                 if !any_match {
-                                    tracing::debug!("topic {} is not in the recorded list, skipping...", ke.topic());
+                                    tracing::debug!("topic {} (key: {}) is not in the recorded list, skipping...", ke.topic(), original_topic);
                                     continue;
                                 }
                             } else {
@@ -292,7 +297,7 @@ impl RecordTask {
                                             id
                                         },
                                         Err(e) => {
-                                            tracing::warn!("Unable to get the ROS message data of {rostype}, skipping...: {e}");
+                                            tracing::error!("Unable to get the ROS message data of {rostype}, skipping...: {e}");
                                             continue;
                                         }
                                     }
@@ -313,6 +318,8 @@ impl RecordTask {
                                 channels_map.insert(original_topic.to_string(), channel_id);
                                 tracing::debug!("Adding new channel for topic: {original_topic} with id: {channel_id}");
                             }
+                        } else {
+                            tracing::warn!("Something wrong when parsing the liveliness token name: {}", sample.key_expr());
                         }
                     } else {
                         tracing::error!("Error receiving liveliness sample");

@@ -4,7 +4,7 @@
 //
 // This software is the confidential and proprietary information of ZettaScale Technology.
 //
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +76,31 @@ pub fn dds_type_to_ros_type(dds_type: &str) -> String {
     // remove _ in the final part of the string
     ros_type.pop();
     ros_type
+}
+
+/// Parse the key_expression "Domain/Topic/Rostype/Hash"
+pub fn parse_subscription_ros_keyepxr(input: &str) -> Result<(String, String, String, String)> {
+    // Split the parts
+    let parts: Vec<&str> = input.split('/').collect();
+    if parts.len() < 4 {
+        return Err(anyhow!(
+            "Wrong format: It should be Domain/Topic/Rostype/Hash"
+        ));
+    }
+
+    let domain = parts[0];
+    let hash = parts[parts.len() - 1];
+    let rostype = parts[parts.len() - 2];
+    // Assemble topic
+    let topic_parts = &parts[1..parts.len() - 2];
+    let topic = topic_parts.join("/");
+
+    Ok((
+        domain.to_string(),
+        topic,
+        rostype.to_string(),
+        hash.to_string(),
+    ))
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
