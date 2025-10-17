@@ -52,7 +52,10 @@ async fn main() -> Result<()> {
 
     // Plugin manager with REST plugin
     let mut plugins_manager = PluginsManager::static_plugins_only();
-    plugins_manager.declare_static_plugin::<zenoh_plugin_rest::RestPlugin, &str>("rest", true);
+    if let Ok(http_port) = config.get_json("plugins/rest/http_port") {
+        tracing::info!("REST plugin available on HTTP port {http_port}");
+        plugins_manager.declare_static_plugin::<zenoh_plugin_rest::RestPlugin, &str>("rest", true);
+    }
 
     // Create a Zenoh Runtime and Session.
     let mut runtime = RuntimeBuilder::new(config)

@@ -205,8 +205,7 @@ else:
 # Build the image
 docker build -t rmw-zenoh-mcap-writer .
 # Run the container
-# Note that you can mount volume if you don't want to put the recorded file inside the container
-docker run --network host --rm -it rmw-zenoh-mcap-writer
+docker run --network host --rm -it -v ./mcap_output:/workspace/mcap_output rmw-zenoh-mcap-writer
 ```
 
 ### On your host
@@ -233,7 +232,7 @@ Options:
   -l, --listen <ENDPOINT>        Locators on which this router will listen for incoming sessions. Repeat this option to open several listeners
   -e, --connect <ENDPOINT>       A peer locator this router will try to connect to. Repeat this option to connect to several peers
       --no-multicast-scouting    By default zenohd replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature
-      --rest-http-port <SOCKET>  Configures HTTP interface for the REST API (enabled by default on port 8000). Accepted values: - a port number - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface) - `none` to disable the REST API
+      --rest-http-port <SOCKET>  Configures HTTP interface for the REST API (disabled by default). Accepted values: - a port number - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface) - `none` to disable the REST API
   -o, --output-path <PATH>       Directory where to store the recorded files [default: .]
   -h, --help                     Print help
 ```
@@ -246,7 +245,7 @@ Options:
   * `-o`: where to put the recorded files.
 
 ```bash
-./target/release/rmw-zenoh-mcap-writer -e tcp/localhost:7447 --rest-http-port 8000 -o .
+./target/release/rmw-zenoh-mcap-writer -e tcp/localhost:7447 --rest-http-port 8000 -o mcap_output
 ```
 
 * Then you can either use REST or Zenoh API to control the recording.

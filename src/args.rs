@@ -9,7 +9,7 @@ use serde_json::json;
 use zenoh::Config;
 use zenoh_config::EndPoint;
 
-const DEFAULT_HTTP_PORT: u16 = 8000;
+const DEFAULT_HTTP_PORT: &str = "8000";
 const DEFAULT_PATH: &str = ".";
 const DEFAULT_ZENOHD: &str = "tcp/localhost:7447";
 
@@ -29,7 +29,7 @@ pub(crate) struct Args {
     /// By default zenohd replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature.
     #[arg(long)]
     no_multicast_scouting: bool,
-    /// Configures HTTP interface for the REST API (enabled by default on port 8000). Accepted values:
+    /// Configures HTTP interface for the REST API (disabled by default). Accepted values:
     ///   - a port number
     ///   - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface)
     ///   - `none` to disable the REST API
@@ -55,15 +55,18 @@ impl Args {
         };
 
         // REST
-        let port = if let Some(port) = self.rest_http_port.clone() {
-            port.parse::<u16>().ok().unwrap_or(DEFAULT_HTTP_PORT)
-        } else {
-            DEFAULT_HTTP_PORT
-        };
-        config
-            .insert_json5("plugins/rest/http_port", &format!(r#""{port}""#))
-            .and_then(|_| config.insert_json5("plugins/rest/__required__", "true"))
-            .map_err(|err| anyhow!("could not set REST HTTP port `{port}`: {err}"))?;
+        // apply '--rest-http-port' to config only if explicitly set (overwriting config)
+        if self.rest_http_port.is_some() {
+            let value = self.rest_http_port.as_deref().unwrap_or(DEFAULT_HTTP_PORT);
+            if !value.eq_ignore_ascii_case("none") {
+                config
+                    .insert_json5("plugins/rest/http_port", &format!(r#""{value}""#))
+                    .unwrap();
+                config
+                    .insert_json5("plugins/rest/__required__", "true")
+                    .unwrap();
+            }
+        }
 
         // Endpoints
         if !self.connect.is_empty() {
