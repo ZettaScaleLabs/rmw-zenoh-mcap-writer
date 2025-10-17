@@ -302,8 +302,11 @@ impl RecordTask {
                                             id
                                         },
                                         Err(e) => {
-                                            tracing::error!("Unable to get the ROS message data of {rostype}, skipping...: {e}");
-                                            continue;
+                                            tracing::warn!("Unable to get the ROS message data of {rostype} from the type registry. Use empty instead. Error: {e}");
+                                            let id = out.add_schema(&rostype, "ros2msg", "".as_bytes())?;
+                                            tracing::debug!("Adding new schema for id: {id}, rostype: {rostype}, data: ''");
+                                            schemas_map.insert(rostype, id);
+                                            id
                                         }
                                     }
                                 }

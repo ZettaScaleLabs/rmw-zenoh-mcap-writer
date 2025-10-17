@@ -240,6 +240,8 @@ Options:
 ```
 
 * Run the `rmw_zenohd` and [ros2-types-registry](https://github.com/ZettaScaleLabs/ros2-types-registry) first.
+  * Follow [the tutorial](https://github.com/ZettaScaleLabs/ros2-types-registry?tab=readme-ov-file#how-to-build-it) to run `ros2-types-registry`.
+  * If `ros2-types-registry` is not available, ROS distro will be configured to `kilted` and the data type inside the schema will be empty.
 
 * Run the `rmw-zenoh-mcap-writer` and connect to rmw_zenohd.
   * Modify the localhost to your `rmw_zenohd` IP.
