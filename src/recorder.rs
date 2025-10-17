@@ -19,6 +19,7 @@ use zenoh::{
     },
     sample::SampleKind,
 };
+use zenoh_ext::ZDeserializer;
 
 use crate::registry;
 use crate::utils;
@@ -231,22 +232,35 @@ impl RecordTask {
                                 tracing::warn!("Unable to transform the topic name {topic} to keyexpr");
                                 continue;
                             };
+
                             // Filter the topic which is not recorded
                             let any_match = topics.iter().any(|t| t.includes(ros_keyexpr));
                             if !any_match {
                                 tracing::debug!("topic {} is not in the recorded list, skipping...", topic);
                                 continue;
                             }
+
+                            // Deserialize the attachment
+                            let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
+                            let (sequence, publish_time) = if let Some(attachment) = sample.attachment() {
+                                let mut deserializer = ZDeserializer::new(attachment);
+                                // The sequence and publish_time are both i64, but we need to map them to u32 and u64
+                                let sequence = deserializer.deserialize::<i64>().unwrap_or(0) as u32;
+                                let publish_time = deserializer.deserialize::<u64>().unwrap_or(current_time);
+                                (sequence, publish_time)
+                            } else {
+                                (0, current_time)
+                            };
+
                             let topic = "/".to_string() + &topic;  // The topic requires the leading '/'
                             if let Some(channel_id) = channels_map.get(&topic) {
                                 tracing::debug!("Found existing channel_id: {}", channel_id);
-                                let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
                                 out.write_to_known_channel(
                                     &MessageHeader {
                                         channel_id: *channel_id,
-                                        sequence: 0,  // It should be 0 if we don't use the sequence
+                                        sequence,
                                         log_time: current_time,  // Receive timestamp
-                                        publish_time: current_time,  // TODO: Parse the Zenoh attachment
+                                        publish_time,
                                     },
                                     sample.payload().to_bytes().as_ref(),
                                 )?;
