@@ -6,7 +6,7 @@
 //
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
-use zenoh::Config;
+use zenoh::{Config, config::WhatAmI};
 use zenoh_config::EndPoint;
 
 const DEFAULT_HTTP_PORT: &str = "8000";
@@ -15,9 +15,19 @@ const DEFAULT_ZENOHD: &str = "tcp/localhost:7447";
 
 #[derive(clap::Parser, Clone, Debug)]
 pub(crate) struct Args {
-    /// The configuration file. Currently, this file must be a valid JSON5 or YAML file.
-    #[arg(short, long, value_name = "PATH")]
+    /// A configuration file.
+    #[arg(short, long)]
     config: Option<String>,
+    /// Allows arbitrary configuration changes as column-separated KEY:VALUE pairs, where:
+    ///   - KEY must be a valid config path.
+    ///   - VALUE must be a valid JSON5 string that can be deserialized to the expected type for the KEY field.
+    ///
+    /// Example: `--cfg='transport/unicast/max_links:2'`
+    #[arg(long)]
+    cfg: Vec<String>,
+    /// The Zenoh session mode [default: client].
+    #[arg(short, long)]
+    mode: Option<WhatAmI>,
     /// Locators on which this router will listen for incoming sessions. Repeat this option to open
     /// several listeners.
     #[arg(short, long, value_name = "ENDPOINT")]
@@ -46,6 +56,7 @@ impl Args {
     }
 
     pub(crate) fn zenoh_config(&self) -> Result<Config> {
+        // Zenoh config
         let mut config = if let Some(fname) = self.config.as_ref() {
             Config::from_file(fname)
                 .map_err(|err| anyhow!("{err}"))
@@ -53,6 +64,18 @@ impl Args {
         } else {
             Config::default()
         };
+
+        // Zenoh mode
+        if let Some(mode) = self.mode {
+            config
+                .insert_json5("mode", &json!(mode.to_str()).to_string())
+                .unwrap();
+        } else if self.config.is_none() {
+            // default to client mode if no config file and no --mode argument
+            config
+                .insert_json5("mode", &json!(WhatAmI::Client.to_str()).to_string())
+                .unwrap();
+        }
 
         // REST
         // apply '--rest-http-port' to config only if explicitly set (overwriting config)
@@ -122,6 +145,19 @@ impl Args {
             .multicast
             .set_enabled(Some(multicast_scouting))
             .expect("setting scouting/multicast/enabled should not fail");
+
+        // JSON CFG
+        for json in &self.cfg {
+            if let Some((key, value)) = json.split_once(':') {
+                if let Err(err) = config.insert_json5(key, value) {
+                    eprintln!("`--cfg` argument: could not parse `{json}`: {err}");
+                    std::process::exit(-1);
+                }
+            } else {
+                eprintln!("`--cfg` argument: expected KEY:VALUE pair, got {json}");
+                std::process::exit(-1);
+            }
+        }
 
         Ok(config)
     }
