@@ -1,4 +1,3 @@
-
 FROM ros:kilted-ros-core
 
 # Install necessary packages

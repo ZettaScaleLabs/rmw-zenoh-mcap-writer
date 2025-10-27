@@ -1,8 +1,14 @@
 //
 // Copyright (c) 2025 ZettaScale Technology
-// All rights reserved.
 //
-// This software is the confidential and proprietary information of ZettaScale Technology.
+// This program and the accompanying materials are made available under the
+// terms of the Apache License, Version 2.0
+// which is available at https://www.apache.org/licenses/LICENSE-2.0.
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Contributors:
+//   ChenYing Kuo, <cy@zettascale.tech>
 //
 use anyhow::{Result, anyhow};
 use chrono::Duration;
@@ -20,7 +26,7 @@ struct StartingTime {
 
 // TODO: Add more fields if necessary
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate)struct BagMetadata {
+pub(crate) struct BagMetadata {
     version: u32,
     storage_identifier: String,
     relative_file_paths: Vec<String>,
@@ -39,7 +45,7 @@ pub(crate)struct BagMetadata {
 }
 
 impl BagMetadata {
-    pub(crate)fn new(filename: &String, ros_distro: String) -> Result<Self> {
+    pub(crate) fn new(filename: &String, ros_distro: String) -> Result<Self> {
         Ok(BagMetadata {
             version: 9,
             storage_identifier: "mcap".to_string(),
@@ -61,7 +67,7 @@ impl BagMetadata {
         })
     }
 
-    pub(crate)fn to_yaml_string(&self) -> Result<String> {
+    pub(crate) fn to_yaml_string(&self) -> Result<String> {
         Ok(serde_yaml::to_string(self)?)
     }
 }
@@ -70,7 +76,7 @@ impl BagMetadata {
 /// For example, from `std_msgs::msg::dds_::String_` to `std_msgs/msg/String`
 /// Refer to: https://github.com/ros2/rosidl_dds/blob/772632eb729ab48f368a0862659224be80caf56b/rosidl_generator_dds_idl/rosidl_generator_dds_idl/__init__.py#L73
 // TODO: Have a full mapping function
-pub(crate)fn dds_type_to_ros_type(dds_type: &str) -> String {
+pub(crate) fn dds_type_to_ros_type(dds_type: &str) -> String {
     // Remove `dds_::` and replace all `::` with `/`
     let mut ros_type = dds_type.replace("dds_::", "").replace("::", "/");
     // remove _ in the final part of the string
@@ -79,7 +85,9 @@ pub(crate)fn dds_type_to_ros_type(dds_type: &str) -> String {
 }
 
 /// Parse the key_expression "Domain/Topic/Rostype/Hash"
-pub(crate)fn parse_subscription_ros_keyepxr(input: &str) -> Result<(String, String, String, String)> {
+pub(crate) fn parse_subscription_ros_keyepxr(
+    input: &str,
+) -> Result<(String, String, String, String)> {
     // Split the parts
     let parts: Vec<&str> = input.split('/').collect();
     if parts.len() < 4 {
@@ -105,7 +113,7 @@ pub(crate)fn parse_subscription_ros_keyepxr(input: &str) -> Result<(String, Stri
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(remote = "Duration")]
-pub(crate)struct DurationDef {
+pub(crate) struct DurationDef {
     #[serde(rename = "sec", getter = "Duration::num_seconds")]
     secs: i64,
     #[serde(rename = "nsec", getter = "Duration::subsec_nanos")]
@@ -117,7 +125,7 @@ fn default_duration() -> Duration {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate)struct QoSProfile {
+pub(crate) struct QoSProfile {
     history: String,
     depth: Option<u32>,
     reliability: String,
@@ -199,6 +207,6 @@ fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
 }
 
 /// Transform Zenoh QoS into a string
-pub(crate)fn zenoh_qos_to_string(zenoh_qos: &str) -> Result<String> {
+pub(crate) fn zenoh_qos_to_string(zenoh_qos: &str) -> Result<String> {
     Ok(serde_yaml::to_string(&vec![parse_zenoh_qos(zenoh_qos)?])?)
 }
