@@ -6,6 +6,16 @@ It's developped directly on top of Zenoh (in Rust). Hence it doesn't require ROS
 
 The subscriptions and recording is controlled via a Zenoh-based API.
 
+## Acknowledment
+
+This work is sponsored by  
+
+<p align="left">
+  <a href="https://www.dexory.com/">
+    <img height="50" src="images/Dexory_logo.png" alt="Dexory"/>
+  </a>
+</p>
+
 ## API
 
 When `rmw-zenoh-mcap-writer` is running, it declares a Queryable on the key expression `@mcap/writer/*` to receive commands.
