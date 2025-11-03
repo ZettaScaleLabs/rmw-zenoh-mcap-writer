@@ -238,15 +238,16 @@ $ ./target/release/rmw-zenoh-mcap-writer -h
 Usage: rmw-zenoh-mcap-writer [OPTIONS]
 
 Options:
-  -c, --config <CONFIG>          A configuration file
-      --cfg <CFG>                Allows arbitrary configuration changes as column-separated KEY:VALUE pairs, where: - KEY must be a valid config path. - VALUE must be a valid JSON5 string that can be deserialized to the expected type for the KEY field
-  -m, --mode <MODE>              The Zenoh session mode [default: client]
-  -l, --listen <ENDPOINT>        Locators on which this router will listen for incoming sessions. Repeat this option to open several listeners
-  -e, --connect <ENDPOINT>       A peer locator this router will try to connect to. Repeat this option to connect to several peers
-      --no-multicast-scouting    By default zenohd replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature
-      --rest-http-port <SOCKET>  Configures HTTP interface for the REST API (disabled by default). Accepted values: - a port number - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface) - `none` to disable the REST API
-  -o, --output-path <PATH>       Directory where to store the recorded files [default: .]
-  -h, --help                     Print help (see more with '--help')
+  -c, --config <CONFIG>             A configuration file
+      --cfg <CFG>                   Allows arbitrary configuration changes as column-separated KEY:VALUE pairs, where: - KEY must be a valid config path. - VALUE must be a valid JSON5 string that can be deserialized to the expected type for the KEY field
+  -m, --mode <MODE>                 The Zenoh session mode [default: client]
+  -l, --listen <ENDPOINT>           Locators on which Zenoh will listen for incoming connections. Repeat this option to open several listeners
+  -e, --connect <ENDPOINT>          A locator Zenoh will try to connect to. By default it will try to connect to "tcp/localhost:7447". Repeat this option to connect to several routers or peers
+      --connect-timeout <ENDPOINT>  A timeout in milliseconds for the initial connection to a router. Default is -1, meaning no timeout. 0 means only 1 attempt of connection is made [default: -1]
+      --no-multicast-scouting       By default Zenoh replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature
+      --rest-http-port <SOCKET>     Configures HTTP interface for the REST API (disabled by default). Accepted values: - a port number - a string with format `<local_ip>:<port_number>` (to bind the HTTP server to a specific interface) - `none` to disable the REST API
+  -o, --output-path <PATH>          Directory where to store the recorded MCAP files [default: .]
+  -h, --help                        Print help (see more with '--help')
 ```
 
 * Run the `rmw_zenohd` and [ros2-types-registry](https://github.com/ZettaScaleLabs/ros2-types-registry) first.

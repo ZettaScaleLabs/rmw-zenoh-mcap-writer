@@ -13,7 +13,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 use zenoh::{Config, config::WhatAmI};
-use zenoh_config::EndPoint;
+use zenoh_config::{EndPoint, ModeDependentValue};
 
 const DEFAULT_HTTP_PORT: &str = "8000";
 const DEFAULT_PATH: &str = ".";
@@ -34,15 +34,19 @@ pub(crate) struct Args {
     /// The Zenoh session mode [default: client].
     #[arg(short, long)]
     mode: Option<WhatAmI>,
-    /// Locators on which this router will listen for incoming sessions. Repeat this option to open
-    /// several listeners.
+    /// Locators on which Zenoh will listen for incoming connections.
+    /// Repeat this option to open several listeners.
     #[arg(short, long, value_name = "ENDPOINT")]
     listen: Vec<String>,
-    /// A peer locator this router will try to connect to.
-    /// Repeat this option to connect to several peers.
+    /// A locator Zenoh will try to connect to. By default it will try to connect to "tcp/localhost:7447".
+    /// Repeat this option to connect to several routers or peers.
     #[arg(short = 'e', long, value_name = "ENDPOINT")]
     connect: Vec<String>,
-    /// By default zenohd replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature.
+    /// A timeout in milliseconds for the initial connection to a router. Default is -1, meaning no timeout.
+    /// 0 means only 1 attempt of connection is made.
+    #[arg(long, value_name = "ENDPOINT", default_value = "-1")]
+    connect_timeout: i64,
+    /// By default Zenoh replies to multicast scouting messages for being discovered by peers and clients. This option disables this feature.
     #[arg(long)]
     no_multicast_scouting: bool,
     /// Configures HTTP interface for the REST API (disabled by default). Accepted values:
@@ -51,7 +55,7 @@ pub(crate) struct Args {
     ///   - `none` to disable the REST API
     #[arg(long, value_name = "SOCKET")]
     rest_http_port: Option<String>,
-    /// Directory where to store the recorded files.
+    /// Directory where to store the recorded MCAP files.
     #[arg(short, long, value_name = "PATH", default_value = DEFAULT_PATH)]
     output_path: String,
 }
@@ -137,6 +141,9 @@ impl Args {
                 )
                 .expect("setting listen/endpoints should not fail");
         }
+
+        // Connect timeout
+        config.connect.timeout_ms = Some(ModeDependentValue::Unique(self.connect_timeout));
 
         // Scouting
         let multicast_scouting = matches!(
