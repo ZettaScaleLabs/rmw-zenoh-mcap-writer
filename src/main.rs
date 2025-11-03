@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
         .build()
         .await
         .map_err(|err| anyhow!("failed to build Zenoh runtime: {err}"))?;
+    tracing::info!("Creating Zenoh Session and establishing connection...");
     runtime
         .start()
         .await
@@ -76,6 +77,7 @@ async fn main() -> Result<()> {
     let zsession = zenoh::session::init(runtime.into())
         .await
         .map_err(|err| anyhow!("failed to create Zenoh session: {err}"))?;
+    tracing::info!("Connected - Zenoh Session created");
 
     // Get the ROS 2 distro
     let ros_distro = registry::get_ros_distro(zsession.clone()).await;
