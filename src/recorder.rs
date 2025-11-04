@@ -10,7 +10,11 @@
 // Contributors:
 //   ChenYing Kuo, <cy@zettascale.tech>
 //
-use std::{collections::BTreeMap, fs, io::BufWriter};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    io::BufWriter,
+};
 
 use anyhow::{Result, anyhow};
 use chrono::{Local, Utc};
@@ -169,24 +173,28 @@ impl RecordTask {
         key_expr: &KeyExpr<'static>,
         topic: &String,
         tx: Sender<Sample>,
-        topic_recorder_list: &mut Vec<(Subscriber<()>, LivelinessToken)>,
+        topic_recorder_hashmap: &mut HashMap<String, (Subscriber<()>, LivelinessToken)>,
     ) -> Result<()> {
-        // Parse the key_expr
-        let ke = ke_graphcache::parse(key_expr)
-            .map_err(|e| anyhow!("Unable to parse the key expression: {e}"))?;
+        // Only create a topic recorder if it doesn't exist
+        if topic_recorder_hashmap.contains_key(topic) {
+            tracing::debug!("The topic {topic} has already been recorded");
+        } else {
+            // Parse the key_expr
+            let ke = ke_graphcache::parse(key_expr)
+                .map_err(|e| anyhow!("Unable to parse the key expression: {e}"))?;
 
-        // Create subscriber
-        let key_expr = keformat!(
-            ke_sub_rostopic::formatter(),
-            domain = ke.domain(),
-            topic,
-            type_name = "*",
-            type_hash = "*"
-        )
-        .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
-        let key_expr_cloned = key_expr.clone();
-        tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
-        let subscriber = session
+            // Create subscriber
+            let key_expr = keformat!(
+                ke_sub_rostopic::formatter(),
+                domain = ke.domain(),
+                topic,
+                type_name = "*",
+                type_hash = "*"
+            )
+            .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
+            let key_expr_cloned = key_expr.clone();
+            tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
+            let subscriber = session
             .declare_subscriber(&key_expr)
             .callback(move |sample| {
                 // Put data to TX
@@ -199,35 +207,36 @@ impl RecordTask {
             .await
             .map_err(|e| anyhow!("Unable to declare the subscriber: {e}"))?;
 
-        // Create liveliness token
-        let key_expr = keformat!(
-            ke_graphcache::formatter(),
-            domain = ke.domain(),
-            zid = session.id().zid(),
-            node = NODE_ID,
-            entity = utils::get_entity_id(),
-            entity_kind = "MS",
-            enclave = ke.enclave(),
-            namespace = ke.namespace(),
-            node_name = NODE_NAME,
-            topic = ke.topic(),
-            rostype = ke.rostype(),
-            hash = ke.hash(),
-            qos = ke.qos(),
-        )
-        .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
-        tracing::debug!(
-            "Create a liveliness token for the key expression: {}",
-            key_expr
-        );
-        let token = session
-            .liveliness()
-            .declare_token(&key_expr)
-            .await
-            .map_err(|e| anyhow!("Unable to declare the livelness token: {e}"))?;
+            // Create liveliness token
+            let key_expr = keformat!(
+                ke_graphcache::formatter(),
+                domain = ke.domain(),
+                zid = session.id().zid(),
+                node = NODE_ID,
+                entity = utils::get_entity_id(),
+                entity_kind = "MS",
+                enclave = ke.enclave(),
+                namespace = ke.namespace(),
+                node_name = NODE_NAME,
+                topic = ke.topic(),
+                rostype = ke.rostype(),
+                hash = ke.hash(),
+                qos = ke.qos(),
+            )
+            .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
+            tracing::debug!(
+                "Create a liveliness token for the key expression: {}",
+                key_expr
+            );
+            let token = session
+                .liveliness()
+                .declare_token(&key_expr)
+                .await
+                .map_err(|e| anyhow!("Unable to declare the livelness token: {e}"))?;
 
-        // Store the subscriber and liveliness tokens to avoid dropping
-        topic_recorder_list.push((subscriber, token));
+            // Store the subscriber and liveliness tokens to avoid dropping
+            topic_recorder_hashmap.insert(topic.to_owned(), (subscriber, token));
+        }
 
         Ok(())
     }
@@ -251,7 +260,8 @@ impl RecordTask {
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
         // Create a mpsc unbounded channel to write data
-        let mut topic_recorder_list: Vec<(Subscriber<()>, LivelinessToken)> = Vec::new();
+        let mut topic_recorder_hashmap: HashMap<String, (Subscriber<()>, LivelinessToken)> =
+            HashMap::new();
         let (tx, mut rx) = mpsc::channel(CHANNEL_SIZE);
 
         // MCAP Writer
@@ -328,7 +338,7 @@ impl RecordTask {
 
                             // Create subscribers with a callback to put data into the channel
                             tracing::debug!("Detect a new liveliness token we haven't had yet: {}", sample.key_expr());
-                            RecordTask::create_a_topic_recorder(session.clone(), sample.key_expr(), &original_topic_no_leading, tx.clone(), &mut topic_recorder_list).await?;
+                            RecordTask::create_a_topic_recorder(session.clone(), sample.key_expr(), &original_topic_no_leading, tx.clone(), &mut topic_recorder_hashmap).await?;
 
                             // Check schemas
                             let rostype = utils::dds_type_to_ros_type(ke.rostype());
@@ -426,7 +436,7 @@ impl RecordTask {
         }
 
         // Cleanup the subscribers and liveliness tokens
-        for (sub, token) in topic_recorder_list {
+        for (_topic, (sub, token)) in topic_recorder_hashmap {
             let _ = sub.undeclare().await;
             let _ = token.undeclare().await;
         }
