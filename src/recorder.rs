@@ -185,7 +185,7 @@ impl RecordTask {
         )
         .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
         let key_expr_cloned = key_expr.clone();
-        tracing::debug!("Subscribing to key expression: {}", key_expr);
+        tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
         let subscriber = session
             .declare_subscriber(&key_expr)
             .callback(move |sample| {
@@ -216,6 +216,10 @@ impl RecordTask {
             qos = ke.qos(),
         )
         .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
+        tracing::debug!(
+            "Create a liveliness token for the key expression: {}",
+            key_expr
+        );
         let token = session
             .liveliness()
             .declare_token(&key_expr)
@@ -323,6 +327,7 @@ impl RecordTask {
                             }
 
                             // Create subscribers with a callback to put data into the channel
+                            tracing::debug!("Detect a new liveliness token we haven't had yet: {}", sample.key_expr());
                             RecordTask::create_a_topic_recorder(session.clone(), sample.key_expr(), &original_topic_no_leading, tx.clone(), &mut topic_recorder_list).await?;
 
                             // Check schemas
@@ -379,7 +384,7 @@ impl RecordTask {
                         sample.payload()
                     );
                     if let Ok((_domain, topic, rostype, hash)) = utils::parse_subscription_ros_keyepxr(sample.key_expr()) {
-                        tracing::debug!("topic: {}, rostype: {}, hash: {}", topic, rostype, hash);
+                        tracing::trace!("From the key expression: topic={topic}, rostype={rostype}, hash={hash}");
 
                         // Deserialize the attachment
                         let current_time = Utc::now().timestamp_nanos_opt().ok_or(anyhow!("Unable to get the current time"))? as u64;
@@ -396,7 +401,7 @@ impl RecordTask {
                         // Write the record into the file
                         let topic = "/".to_string() + &topic;  // The topic requires the leading '/'
                         if let Some(channel_id) = channels_map.get(&topic) {
-                            tracing::debug!("Found existing channel_id: {}", channel_id);
+                            tracing::trace!("Write a new record: channel_id={channel_id}, sequence={sequence}, log_time={current_time}, publish_time={publish_time}");
                             out.write_to_known_channel(
                                 &MessageHeader {
                                     channel_id: *channel_id,
@@ -407,7 +412,7 @@ impl RecordTask {
                                 sample.payload().to_bytes().as_ref(),
                             )?;
                         } else {
-                            tracing::debug!("Skip the messages because there is no existing channel_id for topic: {}", topic);
+                            tracing::warn!("Skip the messages because there is no existing channel_id for topic: {}", topic);
                         }
                     } else {
                         tracing::warn!("Something wrong when parsing the topic name: {}", sample.key_expr());
