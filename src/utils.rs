@@ -217,6 +217,5 @@ pub(crate) fn zenoh_qos_to_string(zenoh_qos: &str) -> Result<String> {
 static GLOBAL_COUNTER: Lazy<AtomicU32> = Lazy::new(|| AtomicU32::new(1));
 /// Get a new entity ID by increasing the number
 pub(crate) fn get_entity_id() -> u32 {
-    let previous_value = GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst);
-    previous_value
+    GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
