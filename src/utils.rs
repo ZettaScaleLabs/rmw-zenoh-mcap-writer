@@ -10,6 +10,9 @@
 // Contributors:
 //   ChenYing Kuo, <cy@zettascale.tech>
 //
+use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use anyhow::{Result, anyhow};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
@@ -209,4 +212,11 @@ fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
 /// Transform Zenoh QoS into a string
 pub(crate) fn zenoh_qos_to_string(zenoh_qos: &str) -> Result<String> {
     Ok(serde_yaml::to_string(&vec![parse_zenoh_qos(zenoh_qos)?])?)
+}
+
+static GLOBAL_COUNTER: Lazy<AtomicU32> = Lazy::new(|| AtomicU32::new(1));
+/// Get a new entity ID by increasing the number
+pub(crate) fn get_entity_id() -> u32 {
+    let previous_value = GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst);
+    previous_value
 }

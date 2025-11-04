@@ -22,10 +22,11 @@ use tokio::sync::{
 use zenoh::{
     Session,
     key_expr::{
-        OwnedKeyExpr,
+        KeyExpr, OwnedKeyExpr,
         format::{kedefine, keformat},
         keyexpr,
     },
+    liveliness::LivelinessToken,
     pubsub::Subscriber,
     sample::{Sample, SampleKind},
 };
@@ -35,6 +36,8 @@ use crate::registry;
 use crate::utils;
 
 const CHANNEL_SIZE: usize = 2048;
+const NODE_ID: u32 = 0;
+const NODE_NAME: &str = "mcap_writer";
 
 kedefine!(
     // The format of ROS topic is Domain/Topic/ROSType/Hash
@@ -43,7 +46,7 @@ kedefine!(
     // Instead, we will parse it with a customized function.
     pub(crate) ke_sub_rostopic: "${domain:*}/${topic:**}/${type_name:*}/${type_hash:*}",
     // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
-    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/MP/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
+    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
 pub(crate) struct RecorderHandler {
@@ -163,14 +166,19 @@ impl RecordTask {
 
     async fn create_a_topic_recorder(
         session: Session,
-        domain: u32,
+        key_expr: &KeyExpr<'static>,
         topic: &String,
         tx: Sender<Sample>,
-        topic_recorder_list: &mut Vec<Subscriber<()>>,
+        topic_recorder_list: &mut Vec<(Subscriber<()>, LivelinessToken)>,
     ) -> Result<()> {
+        // Parse the key_expr
+        let ke = ke_graphcache::parse(key_expr)
+            .map_err(|e| anyhow!("Unable to parse the key expression: {e}"))?;
+
+        // Create subscriber
         let key_expr = keformat!(
             ke_sub_rostopic::formatter(),
-            domain,
+            domain = ke.domain(),
             topic,
             type_name = "*",
             type_hash = "*"
@@ -190,8 +198,33 @@ impl RecordTask {
             })
             .await
             .map_err(|e| anyhow!("Unable to declare the subscriber: {e}"))?;
-        topic_recorder_list.push(subscriber);
-        // TODO: Create liveliness token
+
+        // Create liveliness token
+        let key_expr = keformat!(
+            ke_graphcache::formatter(),
+            domain = ke.domain(),
+            zid = session.id().zid(),
+            node = NODE_ID,
+            entity = utils::get_entity_id(),
+            entity_kind = "MS",
+            enclave = ke.enclave(),
+            namespace = ke.namespace(),
+            node_name = NODE_NAME,
+            topic = ke.topic(),
+            rostype = ke.rostype(),
+            hash = ke.hash(),
+            qos = ke.qos(),
+        )
+        .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
+        let token = session
+            .liveliness()
+            .declare_token(&key_expr)
+            .await
+            .map_err(|e| anyhow!("Unable to declare the livelness token: {e}"))?;
+
+        // Store the subscriber and liveliness tokens to avoid dropping
+        topic_recorder_list.push((subscriber, token));
+
         Ok(())
     }
 
@@ -214,7 +247,7 @@ impl RecordTask {
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
         // Create a mpsc unbounded channel to write data
-        let mut topic_recorder_list: Vec<Subscriber<()>> = Vec::new();
+        let mut topic_recorder_list: Vec<(Subscriber<()>, LivelinessToken)> = Vec::new();
         let (tx, mut rx) = mpsc::channel(CHANNEL_SIZE);
 
         // MCAP Writer
@@ -242,6 +275,7 @@ impl RecordTask {
             zid = "*",
             node = "*",
             entity = "*",
+            entity_kind = "MP",
             enclave = "*",
             namespace = "*",
             node_name = "*",
@@ -289,7 +323,7 @@ impl RecordTask {
                             }
 
                             // Create subscribers with a callback to put data into the channel
-                            RecordTask::create_a_topic_recorder(session.clone(), domain, &original_topic_no_leading, tx.clone(), &mut topic_recorder_list).await?;
+                            RecordTask::create_a_topic_recorder(session.clone(), sample.key_expr(), &original_topic_no_leading, tx.clone(), &mut topic_recorder_list).await?;
 
                             // Check schemas
                             let rostype = utils::dds_type_to_ros_type(ke.rostype());
@@ -387,8 +421,9 @@ impl RecordTask {
         }
 
         // Cleanup the subscribers and liveliness tokens
-        for sub in topic_recorder_list {
+        for (sub, token) in topic_recorder_list {
             let _ = sub.undeclare().await;
+            let _ = token.undeclare().await;
         }
 
         // Write the metadata again at the final stage
