@@ -129,18 +129,18 @@ fn default_duration() -> Duration {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct QoSProfile {
-    history: String,
-    depth: Option<u32>,
-    reliability: String,
-    durability: String,
+    pub(crate) history: String,
+    pub(crate) depth: Option<u32>,
+    pub(crate) reliability: String,
+    pub(crate) durability: String,
     #[serde(with = "DurationDef")]
-    deadline: Duration,
+    pub(crate) deadline: Duration,
     #[serde(with = "DurationDef")]
-    lifespan: Duration,
-    liveliness: String,
+    pub(crate) lifespan: Duration,
+    pub(crate) liveliness: String,
     #[serde(with = "DurationDef")]
-    liveliness_lease_duration: Duration,
-    avoid_ros_namespace_conventions: bool,
+    pub(crate) liveliness_lease_duration: Duration,
+    pub(crate) avoid_ros_namespace_conventions: bool,
 }
 
 impl Default for QoSProfile {
@@ -159,7 +159,7 @@ impl Default for QoSProfile {
     }
 }
 
-fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
+pub(crate) fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
     let mut qos_profile = QoSProfile::default();
     let parts: Vec<&str> = zenoh_qos.split(':').collect();
     // Reliable

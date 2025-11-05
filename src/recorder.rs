@@ -14,6 +14,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fs,
     io::BufWriter,
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -31,13 +32,13 @@ use zenoh::{
         keyexpr,
     },
     liveliness::LivelinessToken,
-    pubsub::Subscriber,
     sample::{Sample, SampleKind},
 };
-use zenoh_ext::ZDeserializer;
+use zenoh_ext::{
+    AdvancedSubscriber, AdvancedSubscriberBuilderExt, HistoryConfig, RecoveryConfig, ZDeserializer,
+};
 
-use crate::registry;
-use crate::utils;
+use crate::{registry, utils};
 
 const CHANNEL_SIZE: usize = 2048;
 const NODE_ID: u32 = 0;
@@ -173,7 +174,7 @@ impl RecordTask {
         key_expr: &KeyExpr<'static>,
         topic: &String,
         tx: Sender<Sample>,
-        topic_recorder_hashmap: &mut HashMap<String, (Subscriber<()>, LivelinessToken)>,
+        topic_recorder_hashmap: &mut HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)>,
     ) -> Result<()> {
         // Only create a topic recorder if it doesn't exist
         if topic_recorder_hashmap.contains_key(topic) {
@@ -193,9 +194,35 @@ impl RecordTask {
             )
             .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
             let key_expr_cloned = key_expr.clone();
-            tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
-            let subscriber = session
-            .declare_subscriber(&key_expr)
+            let qos_profile = utils::parse_zenoh_qos(ke.qos())?;
+            // We use the advanced subscriber here for transient local topic
+            let subscriber_builder = if qos_profile.durability == "transient_local" {
+                tracing::debug!(
+                    "Create a transient_local subscriber for the key expression: {}",
+                    key_expr
+                );
+                let history_config = if let Some(depth) = qos_profile.depth {
+                    HistoryConfig::default()
+                        .detect_late_publishers()
+                        .max_samples(depth as usize)
+                } else {
+                    HistoryConfig::default().detect_late_publishers()
+                };
+                let adv_sub = session
+                    .declare_subscriber(&key_expr)
+                    .subscriber_detection()
+                    .query_timeout(Duration::MAX)
+                    .history(history_config);
+                if qos_profile.reliability == "reliable" {
+                    adv_sub.recovery(RecoveryConfig::default().heartbeat())
+                } else {
+                    adv_sub
+                }
+            } else {
+                tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
+                session.declare_subscriber(&key_expr).advanced()
+            };
+            let subscriber = subscriber_builder
             .callback(move |sample| {
                 // Put data to TX
                 if let Err(e) = tx.try_send(sample) {
@@ -260,7 +287,7 @@ impl RecordTask {
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
         let mut channels_map: BTreeMap<String, u16> = BTreeMap::new();
         // Create a mpsc unbounded channel to write data
-        let mut topic_recorder_hashmap: HashMap<String, (Subscriber<()>, LivelinessToken)> =
+        let mut topic_recorder_hashmap: HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)> =
             HashMap::new();
         let (tx, mut rx) = mpsc::channel(CHANNEL_SIZE);
 
