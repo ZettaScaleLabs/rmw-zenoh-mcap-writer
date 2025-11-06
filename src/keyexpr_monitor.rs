@@ -116,14 +116,10 @@ impl KeyExprMonitor {
                 // Update the hashset of key_exprs
                 match sample.kind() {
                     SampleKind::Put => {
-                        hashset_key_exprs
-                            .clone()
-                            .insert(OwnedKeyExpr::from(sample.key_expr().clone()));
+                        hashset_key_exprs.insert(OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                     SampleKind::Delete => {
-                        hashset_key_exprs
-                            .clone()
-                            .remove(&OwnedKeyExpr::from(sample.key_expr().clone()));
+                        hashset_key_exprs.remove(&OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                 }
             })
