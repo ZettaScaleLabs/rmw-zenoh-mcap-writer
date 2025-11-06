@@ -21,6 +21,7 @@ use zenoh::{
 };
 
 mod args;
+mod keyexpr_monitor;
 mod recorder;
 mod registry;
 mod utils;
@@ -95,6 +96,10 @@ async fn main() -> Result<()> {
         .await
         .map_err(|err| anyhow!("failed to subscribe to '{}': {err}", queryable_key_expr))?;
 
+    // Create a KeyExprMonitor
+    let mut keyexpr_monitor = keyexpr_monitor::KeyExprMonitor::new();
+    keyexpr_monitor.start(zsession.clone()).await?;
+
     while let Ok(query) = queryable.recv_async().await {
         let ke = if let Ok(parsed_ke) = ke_command::parse(query.key_expr()) {
             parsed_ke
@@ -115,9 +120,12 @@ async fn main() -> Result<()> {
                     domain
                 );
                 // Here we would start the recording task
-                let result = if let Err(e) =
-                    recorder_handler.start(topic.to_owned(), domain, ros_distro.clone())
-                {
+                let result = if let Err(e) = recorder_handler.start(
+                    keyexpr_monitor.get_hashset_key_exprs(),
+                    topic.to_owned(),
+                    domain,
+                    ros_distro.clone(),
+                ) {
                     tracing::error!("failed to start recording: {e}");
                     "failure".to_owned()
                 } else {
