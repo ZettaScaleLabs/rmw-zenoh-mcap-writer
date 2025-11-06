@@ -14,6 +14,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Result, anyhow};
+use tokio::sync::Notify;
+use tokio::sync::futures::Notified;
 use zenoh::{
     Session,
     key_expr::{
@@ -29,7 +31,44 @@ kedefine!(
     pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
-pub(crate) type HashSetKeyExprs = Arc<RwLock<HashSet<OwnedKeyExpr>>>;
+pub(crate) struct StorageKeyExprs {
+    hashset_key_exprs: Arc<RwLock<HashSet<OwnedKeyExpr>>>,
+    notify: Arc<Notify>,
+}
+
+impl StorageKeyExprs {
+    pub(crate) fn new() -> Self {
+        Self {
+            hashset_key_exprs: Arc::new(RwLock::new(HashSet::new())),
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    pub(crate) fn insert(&self, key_expr: OwnedKeyExpr) {
+        self.hashset_key_exprs.write().unwrap().insert(key_expr);
+        self.notify.notify_one();
+    }
+
+    pub(crate) fn remove(&self, key_expr: &OwnedKeyExpr) {
+        self.hashset_key_exprs.write().unwrap().remove(key_expr);
+        self.notify.notify_one();
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<OwnedKeyExpr> {
+        self.hashset_key_exprs
+            .read()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn notified(&self) -> Notified<'_> {
+        self.notify.notified()
+    }
+}
+
+pub(crate) type HashSetKeyExprs = Arc<StorageKeyExprs>;
 
 pub(crate) struct KeyExprMonitor {
     liveliness_subscriber: Option<Subscriber<()>>,
@@ -40,9 +79,10 @@ impl KeyExprMonitor {
     pub(crate) fn new() -> Self {
         Self {
             liveliness_subscriber: None,
-            hashset_key_exprs: Arc::new(RwLock::new(HashSet::new())),
+            hashset_key_exprs: Arc::new(StorageKeyExprs::new()),
         }
     }
+
     pub(crate) async fn start(&mut self, session: Session) -> Result<()> {
         // Subscribe to the liveliness
         let key_expr = keformat!(
@@ -68,7 +108,7 @@ impl KeyExprMonitor {
             .declare_subscriber(&key_expr)
             .history(true)
             .callback(move |sample| {
-                tracing::trace!(
+                tracing::debug!(
                     "Received liveliness token: kind='{}', key_expr='{}'",
                     sample.kind(),
                     sample.key_expr(),
@@ -78,15 +118,11 @@ impl KeyExprMonitor {
                     SampleKind::Put => {
                         hashset_key_exprs
                             .clone()
-                            .write()
-                            .unwrap()
                             .insert(OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                     SampleKind::Delete => {
                         hashset_key_exprs
                             .clone()
-                            .write()
-                            .unwrap()
                             .remove(&OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                 }

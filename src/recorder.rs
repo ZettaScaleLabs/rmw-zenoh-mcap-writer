@@ -285,9 +285,7 @@ impl RecordTask {
         topic_recorder_hashmap: &mut HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)>,
         out: &mut Writer<BufWriter<File>>,
     ) -> Result<()> {
-        let list_key_exprs: Vec<OwnedKeyExpr> =
-            hashset_key_exprs.read().unwrap().iter().cloned().collect();
-        for key_expr in list_key_exprs {
+        for key_expr in hashset_key_exprs.to_vec() {
             if let Ok(ke) = ke_graphcache::parse(&key_expr) {
                 tracing::trace!(
                     "domain: {}, topic: {}, rostype: {}, hash: {}, qos: {}",
@@ -444,7 +442,7 @@ impl RecordTask {
 
         // Process the existing HashSet
         RecordTask::process_hashset_key_exprs(
-            hashset_key_exprs,
+            hashset_key_exprs.clone(),
             session.clone(),
             topics.clone(),
             domain,
@@ -457,7 +455,24 @@ impl RecordTask {
         .await?;
 
         loop {
+            let notified_future = hashset_key_exprs.notified();
             tokio::select! {
+                // Check if the KeyExprs inside HashSet are changed or not
+                _ = notified_future => {
+                    tracing::debug!("The liveliness token of the KeyExprs are changed. Process it again.");
+                    RecordTask::process_hashset_key_exprs(
+                        hashset_key_exprs.clone(),
+                        session.clone(),
+                        topics.clone(),
+                        domain,
+                        tx.clone(),
+                        &mut schemas_map,
+                        &mut channels_map,
+                        &mut topic_recorder_hashmap,
+                        &mut out,
+                    )
+                    .await?;
+                },
                 // Receive from tx and store it into MCAP
                 Some(sample) = rx.recv() => {
                     tracing::trace!(
