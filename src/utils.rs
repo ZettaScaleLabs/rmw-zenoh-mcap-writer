@@ -17,6 +17,18 @@ use chrono::Duration;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+use zenoh::key_expr::format::kedefine;
+
+kedefine!(
+    // The format of ROS topic is Domain/Topic/ROSType/Hash
+    // However, there might be several chunks splitted by `/` in Topic,
+    // so we can't parse the key expression easily.
+    // Instead, we will parse it with a customized function.
+    pub(crate) ke_sub_rostopic: "${domain:*}/${topic:**}/${type_name:*}/${type_hash:*}",
+    // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
+    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
+);
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct NanoDuration {
     nanoseconds: u128,

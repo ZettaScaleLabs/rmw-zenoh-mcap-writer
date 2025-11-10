@@ -26,11 +26,7 @@ use tokio::sync::{
 };
 use zenoh::{
     Session,
-    key_expr::{
-        KeyExpr, OwnedKeyExpr,
-        format::{kedefine, keformat},
-        keyexpr,
-    },
+    key_expr::{OwnedKeyExpr, format::keformat, keyexpr},
     liveliness::LivelinessToken,
     sample::Sample,
 };
@@ -38,21 +34,14 @@ use zenoh_ext::{
     AdvancedSubscriber, AdvancedSubscriberBuilderExt, HistoryConfig, RecoveryConfig, ZDeserializer,
 };
 
-use crate::{keyexpr_monitor::HashSetKeyExprs, registry, utils};
+use crate::{
+    keyexpr_monitor::{KeyExprInfo, StorageKeyExprs},
+    registry, utils,
+};
 
 const CHANNEL_SIZE: usize = 2048;
 const NODE_ID: u32 = 0;
 const NODE_NAME: &str = "mcap_writer";
-
-kedefine!(
-    // The format of ROS topic is Domain/Topic/ROSType/Hash
-    // However, there might be several chunks splitted by `/` in Topic,
-    // so we can't parse the key expression easily.
-    // Instead, we will parse it with a customized function.
-    pub(crate) ke_sub_rostopic: "${domain:*}/${topic:**}/${type_name:*}/${type_hash:*}",
-    // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
-    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
-);
 
 pub(crate) struct RecorderHandler {
     session: Session,
@@ -71,7 +60,7 @@ impl RecorderHandler {
 
     pub(crate) fn start(
         &mut self,
-        hashset_key_exprs: HashSetKeyExprs,
+        storage_key_exprs: StorageKeyExprs,
         topic: String,
         domain: &str,
         ros_distro: String,
@@ -96,7 +85,7 @@ impl RecorderHandler {
             .map(|s| OwnedKeyExpr::new(s).unwrap())
             .collect();
         let record_task = RecordTask::new(
-            hashset_key_exprs,
+            storage_key_exprs,
             self.session.clone(),
             self.path.clone(),
             topics,
@@ -138,7 +127,7 @@ struct RecordTask {
 
 impl RecordTask {
     fn new(
-        hashset_key_exprs: HashSetKeyExprs,
+        storage_key_exprs: StorageKeyExprs,
         session: Session,
         path: String,
         topics: Vec<OwnedKeyExpr>,
@@ -151,7 +140,7 @@ impl RecordTask {
         let filename_clone = filename.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = RecordTask::write_mcap(
-                hashset_key_exprs,
+                storage_key_exprs,
                 session,
                 path,
                 topics,
@@ -175,7 +164,7 @@ impl RecordTask {
 
     async fn create_a_topic_recorder(
         session: Session,
-        key_expr: &KeyExpr<'static>,
+        keyexpr_info: &KeyExprInfo,
         topic: &String,
         tx: Sender<Sample>,
         topic_recorder_hashmap: &mut HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)>,
@@ -184,21 +173,17 @@ impl RecordTask {
         if topic_recorder_hashmap.contains_key(topic) {
             tracing::debug!("The topic {topic} has already been recorded");
         } else {
-            // Parse the key_expr
-            let ke = ke_graphcache::parse(key_expr)
-                .map_err(|e| anyhow!("Unable to parse the key expression: {e}"))?;
-
             // Create subscriber
             let key_expr = keformat!(
-                ke_sub_rostopic::formatter(),
-                domain = ke.domain(),
+                utils::ke_sub_rostopic::formatter(),
+                domain = keyexpr_info.domain,
                 topic,
                 type_name = "*",
                 type_hash = "*"
             )
             .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
             let key_expr_cloned = key_expr.clone();
-            let qos_profile = utils::parse_zenoh_qos(ke.qos())?;
+            let qos_profile = utils::parse_zenoh_qos(&keyexpr_info.qos)?;
             // We use the advanced subscriber here for transient local topic
             let subscriber_builder = if qos_profile.durability == "transient_local" {
                 tracing::debug!(
@@ -240,19 +225,19 @@ impl RecordTask {
 
             // Create liveliness token
             let key_expr = keformat!(
-                ke_graphcache::formatter(),
-                domain = ke.domain(),
+                utils::ke_graphcache::formatter(),
+                domain = keyexpr_info.domain,
                 zid = session.id().zid(),
                 node = NODE_ID,
                 entity = utils::get_entity_id(),
                 entity_kind = "MS",
-                enclave = ke.enclave(),
-                namespace = ke.namespace(),
+                enclave = keyexpr_info.enclave.to_string(),
+                namespace = keyexpr_info.namespace.to_string(),
                 node_name = NODE_NAME,
-                topic = ke.topic(),
-                rostype = ke.rostype(),
-                hash = ke.hash(),
-                qos = ke.qos(),
+                topic = keyexpr_info.topic.to_string(),
+                rostype = keyexpr_info.rostype.to_string(),
+                hash = keyexpr_info.hash.to_string(),
+                qos = keyexpr_info.qos.to_string(),
             )
             .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
             tracing::debug!(
@@ -275,7 +260,7 @@ impl RecordTask {
     // TODO: We can optimize it later
     #[allow(clippy::too_many_arguments)]
     async fn process_hashset_key_exprs(
-        hashset_key_exprs: HashSetKeyExprs,
+        storage_key_exprs: StorageKeyExprs,
         session: Session,
         topics: Vec<OwnedKeyExpr>,
         domain: u32,
@@ -285,111 +270,93 @@ impl RecordTask {
         topic_recorder_hashmap: &mut HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)>,
         out: &mut Writer<BufWriter<File>>,
     ) -> Result<()> {
-        for key_expr in hashset_key_exprs.to_vec() {
-            if let Ok(ke) = ke_graphcache::parse(&key_expr) {
-                tracing::trace!(
-                    "domain: {}, topic: {}, rostype: {}, hash: {}, qos: {}",
-                    ke.domain(),
-                    ke.topic(),
-                    ke.rostype(),
-                    ke.hash(),
-                    ke.qos()
-                );
-
-                // Filter the mismatched domain ID
-                if let Ok(parsed_domain) = ke.domain().to_string().parse::<u32>() {
-                    if domain != parsed_domain {
-                        tracing::debug!(
-                            "The domain doesn't match ({domain} != {parsed_domain}), skipping..."
-                        );
-                        continue;
-                    }
-                } else {
-                    tracing::warn!("Something wrong when parsing the domain: {}", ke.domain());
-                    continue;
-                }
-
-                // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw -> camera/image_raw
-                let original_topic = ke.topic().replace("%", "/").to_string();
-                let original_topic_no_leading = original_topic[1..].to_string();
-                if let Ok(compare_key) = keyexpr::new(&original_topic_no_leading) {
-                    // Filter the topic which is not recorded
-                    let any_match = topics.iter().any(|t| t.includes(compare_key));
-                    if !any_match {
-                        tracing::debug!(
-                            "topic {} (key: {}) is not in the recorded list, skipping...",
-                            ke.topic(),
-                            original_topic
-                        );
-                        continue;
-                    }
-                } else {
-                    tracing::warn!("Something wrong with the topic name: {original_topic}");
-                    continue;
-                }
-
-                // Create subscribers with a callback to put data into the channel
+        for (key_expr, keyexpr_info) in storage_key_exprs.to_vec() {
+            // Filter the mismatched domain ID
+            if domain != keyexpr_info.domain {
                 tracing::debug!(
-                    "Detect a new liveliness token we haven't had yet: {}",
-                    key_expr
+                    "The domain doesn't match ({domain} != {}), skipping...",
+                    keyexpr_info.domain
                 );
-                RecordTask::create_a_topic_recorder(
-                    session.clone(),
-                    &KeyExpr::from(key_expr.clone()),
-                    &original_topic_no_leading,
-                    tx.clone(),
-                    topic_recorder_hashmap,
-                )
-                .await?;
+                continue;
+            }
 
-                // Check schemas
-                let rostype = utils::dds_type_to_ros_type(ke.rostype());
-                let schema_id = match schemas_map.get(&rostype) {
-                    Some(id) => *id,
-                    None => match registry::get_ros_msg_data(session.clone(), &rostype).await {
-                        Ok(ros_msg_data) => {
-                            let id =
-                                out.add_schema(&rostype, "ros2msg", ros_msg_data.as_bytes())?;
-                            tracing::debug!(
-                                "Adding new schema for id: {id}, rostype: {rostype}, data: {ros_msg_data}"
-                            );
-                            schemas_map.insert(rostype, id);
-                            id
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Unable to get the ROS message data of {rostype} from the type registry. Use empty instead. Error: {e}"
-                            );
-                            let id = out.add_schema(&rostype, "ros2msg", "".as_bytes())?;
-                            tracing::debug!(
-                                "Adding new schema for id: {id}, rostype: {rostype}, data: ''"
-                            );
-                            schemas_map.insert(rostype, id);
-                            id
-                        }
-                    },
-                };
-
-                // Check channels
-                if !channels_map.contains_key(&ke.topic().to_string()) {
-                    let metadata = BTreeMap::from([
-                        (
-                            "offered_qos_profiles".to_string(),
-                            utils::zenoh_qos_to_string(ke.qos())?,
-                        ),
-                        ("topic_type_hash".to_string(), ke.hash().to_string()),
-                    ]);
-                    let channel_id =
-                        out.add_channel(schema_id, &original_topic, "cdr", &metadata)?;
-                    channels_map.insert(original_topic.to_string(), channel_id);
+            // Transform the topic name from /camera/image_raw to camera/image_raw
+            let original_topic_no_leading = keyexpr_info.original_topic[1..].to_string();
+            if let Ok(compare_key) = keyexpr::new(&original_topic_no_leading) {
+                // Filter the topic which is not recorded
+                let any_match = topics.iter().any(|t| t.includes(compare_key));
+                if !any_match {
                     tracing::debug!(
-                        "Adding new channel for topic: {original_topic} with id: {channel_id}"
+                        "topic {} (key: {}) is not in the recorded list, skipping...",
+                        keyexpr_info.original_topic,
+                        keyexpr_info.topic,
                     );
+                    continue;
                 }
             } else {
                 tracing::warn!(
-                    "Something wrong when parsing the liveliness token name: {}",
-                    key_expr
+                    "Something wrong with the topic name: {}",
+                    keyexpr_info.original_topic
+                );
+                continue;
+            }
+
+            // Create subscribers with a callback to put data into the channel
+            tracing::debug!(
+                "Detect a new liveliness token we haven't had yet: {}",
+                key_expr
+            );
+            RecordTask::create_a_topic_recorder(
+                session.clone(),
+                &keyexpr_info,
+                &original_topic_no_leading,
+                tx.clone(),
+                topic_recorder_hashmap,
+            )
+            .await?;
+
+            // Check schemas
+            let rostype = utils::dds_type_to_ros_type(&keyexpr_info.rostype);
+            let schema_id = match schemas_map.get(&rostype) {
+                Some(id) => *id,
+                None => match registry::get_ros_msg_data(session.clone(), &rostype).await {
+                    Ok(ros_msg_data) => {
+                        let id = out.add_schema(&rostype, "ros2msg", ros_msg_data.as_bytes())?;
+                        tracing::debug!(
+                            "Adding new schema for id: {id}, rostype: {rostype}, data: {ros_msg_data}"
+                        );
+                        schemas_map.insert(rostype, id);
+                        id
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Unable to get the ROS message data of {rostype} from the type registry. Use empty instead. Error: {e}"
+                        );
+                        let id = out.add_schema(&rostype, "ros2msg", "".as_bytes())?;
+                        tracing::debug!(
+                            "Adding new schema for id: {id}, rostype: {rostype}, data: ''"
+                        );
+                        schemas_map.insert(rostype, id);
+                        id
+                    }
+                },
+            };
+
+            // Check channels
+            if !channels_map.contains_key(&keyexpr_info.topic) {
+                let metadata = BTreeMap::from([
+                    (
+                        "offered_qos_profiles".to_string(),
+                        utils::zenoh_qos_to_string(&keyexpr_info.qos)?,
+                    ),
+                    ("topic_type_hash".to_string(), keyexpr_info.hash),
+                ]);
+                let channel_id =
+                    out.add_channel(schema_id, &keyexpr_info.original_topic, "cdr", &metadata)?;
+                channels_map.insert(keyexpr_info.original_topic.clone(), channel_id);
+                tracing::debug!(
+                    "Adding new channel for topic: {} with id: {channel_id}",
+                    keyexpr_info.original_topic
                 );
             }
         }
@@ -399,7 +366,7 @@ impl RecordTask {
     // TODO: We can optimize it later
     #[allow(clippy::too_many_arguments)]
     async fn write_mcap(
-        hashset_key_exprs: HashSetKeyExprs,
+        storage_key_exprs: StorageKeyExprs,
         session: Session,
         path: String,
         topics: Vec<OwnedKeyExpr>,
@@ -442,7 +409,7 @@ impl RecordTask {
 
         // Process the existing HashSet
         RecordTask::process_hashset_key_exprs(
-            hashset_key_exprs.clone(),
+            storage_key_exprs.clone(),
             session.clone(),
             topics.clone(),
             domain,
@@ -455,13 +422,13 @@ impl RecordTask {
         .await?;
 
         loop {
-            let notified_future = hashset_key_exprs.notified();
+            let notified_future = storage_key_exprs.notified();
             tokio::select! {
                 // Check if the KeyExprs inside HashSet are changed or not
                 _ = notified_future => {
                     tracing::debug!("The liveliness token of the KeyExprs are changed. Process it again.");
                     RecordTask::process_hashset_key_exprs(
-                        hashset_key_exprs.clone(),
+                        storage_key_exprs.clone(),
                         session.clone(),
                         topics.clone(),
                         domain,
