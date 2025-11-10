@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "**"
+  schedule:
+    - cron: '0 1 * * *'
+  # Able to call by other workflow
+  workflow_call:
+  # Able to call on GitHub
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: ${{ vars.RUST_TOOLCHAIN || 'stable' }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  markdown_lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          config: '.markdownlint.yaml'
+          globs: '**/*.md'
+
+  build_test_rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy rustfmt
+      - name: Run cargo check
+        run: |
+          cargo check --all --tests
+      - name: Check code format
+        run: |
+          cargo fmt --check -- --config "unstable_features=true,imports_granularity=Crate,group_imports=StdExternalCrate"
+      - name: Run cargo clippy
+        run: |
+          cargo clippy --version
+          cargo clippy --all-targets --all-features -- -W warnings -D warnings
+      - name: Create Documentation
+        run: |
+          cargo doc --no-deps --all-features
+      - name: Run doc tests
+        run: |
+          cargo test

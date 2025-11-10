@@ -10,12 +10,13 @@
 // Contributors:
 //   ChenYing Kuo, <cy@zettascale.tech>
 //
-use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{Result, anyhow};
-use tokio::sync::Notify;
-use tokio::sync::futures::Notified;
+use tokio::sync::{Notify, futures::Notified};
 use zenoh::{
     Session,
     key_expr::{

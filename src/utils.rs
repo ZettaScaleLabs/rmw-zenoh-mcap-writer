@@ -10,11 +10,11 @@
 // Contributors:
 //   ChenYing Kuo, <cy@zettascale.tech>
 //
-use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Result, anyhow};
 use chrono::Duration;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
