@@ -39,7 +39,6 @@ struct StartingTime {
     nanoseconds_since_epoch: u128,
 }
 
-// TODO: Add more fields if necessary
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct BagMetadata {
     version: u32,
@@ -230,4 +229,17 @@ static GLOBAL_COUNTER: Lazy<AtomicU32> = Lazy::new(|| AtomicU32::new(1));
 /// Get a new entity ID by increasing the number
 pub(crate) fn get_entity_id() -> u32 {
     GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+// Add test
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case("std_msgs::msg::dds_::String_", "std_msgs/msg/String"; "String")]
+    fn test_dds_type_to_ros_type(dds_type: &str, ros_type: &str) {
+        let transformed_ros_type = dds_type_to_ros_type(dds_type);
+        assert_eq!(ros_type, transformed_ros_type);
+    }
 }

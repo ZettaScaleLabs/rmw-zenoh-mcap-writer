@@ -40,3 +40,4 @@ zenoh-ext = { version = "1.6.2", default-features = false, features = [
   "unstable",
 ] }
 once_cell = "1.21.3"
+test-case = "3.3.1"
