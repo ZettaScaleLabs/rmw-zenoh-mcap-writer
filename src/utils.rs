@@ -16,7 +16,6 @@ use anyhow::{Result, anyhow};
 use chrono::Duration;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-
 use zenoh::key_expr::format::kedefine;
 
 kedefine!(
@@ -234,8 +233,9 @@ pub(crate) fn get_entity_id() -> u32 {
 // Add test
 #[cfg(test)]
 mod tests {
-    use super::*;
     use test_case::test_case;
+
+    use super::*;
 
     #[test_case("std_msgs::msg::dds_::String_", "std_msgs/msg/String"; "String")]
     fn test_dds_type_to_ros_type(dds_type: &str, ros_type: &str) {
