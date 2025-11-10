@@ -43,18 +43,24 @@ const CHANNEL_SIZE: usize = 2048;
 const NODE_ID: u32 = 0;
 const NODE_NAME: &str = "mcap_writer";
 
-pub(crate) struct RecorderHandler {
-    session: Session,
-    path: String,
-    task: Option<RecordTask>,
+struct Handler {
+    handle: tokio::task::JoinHandle<()>,
+    stop_tx: oneshot::Sender<()>,
+    filename: String,
 }
 
-impl RecorderHandler {
+pub(crate) struct RecorderHandlers {
+    session: Session,
+    path: String,
+    handler: Option<Handler>,
+}
+
+impl RecorderHandlers {
     pub(crate) fn new(session: Session, path: String) -> Self {
         Self {
             session,
             path,
-            task: None,
+            handler: None,
         }
     }
 
@@ -65,9 +71,11 @@ impl RecorderHandler {
         domain: &str,
         ros_distro: String,
     ) -> Result<String> {
-        if self.task.is_some() {
+        if self.handler.is_some() {
             return Err(anyhow!("Recording task is already running"));
         }
+
+        // Parse the arguments
         let domain = domain
             .parse::<u32>()
             .map_err(|e| anyhow!("Invalid domain '{}': {}", domain, e))?;
@@ -84,33 +92,49 @@ impl RecorderHandler {
             // Transform into key_expr
             .map(|s| OwnedKeyExpr::new(s).unwrap())
             .collect();
-        let record_task = RecordTask::new(
+
+        // Create Task
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let mut record_task = RecordTask::new(
             storage_key_exprs,
             self.session.clone(),
             self.path.clone(),
             topics,
             domain,
             ros_distro,
+            stop_rx,
         );
-        self.task = Some(record_task);
+        let filename = record_task.filename.clone();
+        let handle = tokio::spawn(async move {
+            if let Err(e) = record_task.write_mcap().await {
+                tracing::error!("Fail while running the record task: {e}");
+            }
+        });
+        self.handler = Some(Handler {
+            handle,
+            stop_tx,
+            filename,
+        });
         Ok("Recording started".to_string())
     }
 
     pub(crate) fn status(&mut self) -> String {
-        if let Some(ref task) = self.task
-            && !task.is_finished()
+        if let Some(ref handler) = self.handler
+            && !handler.handle.is_finished()
         {
             return "recording".to_string();
         }
-        self.task.take(); // Drop the task
+        // Drop the task
+        self.handler.take();
         "stopped".to_string()
     }
 
     pub(crate) fn stop(&mut self) -> Result<String> {
-        if let Some(task) = self.task.take() {
-            let filename = task.filename.clone();
+        if let Some(handler) = self.handler.take() {
+            let filename = handler.filename.clone();
             tokio::spawn(async move {
-                task.stop().await;
+                let _ = handler.stop_tx.send(());
+                let _ = handler.handle.await;
             });
             Ok(filename)
         } else {
@@ -120,9 +144,14 @@ impl RecorderHandler {
 }
 
 struct RecordTask {
-    handle: tokio::task::JoinHandle<()>,
-    stop_tx: oneshot::Sender<()>,
+    storage_key_exprs: StorageKeyExprs,
+    session: Session,
+    path: String,
     filename: String,
+    topics: Vec<OwnedKeyExpr>,
+    domain: u32,
+    ros_distro: String,
+    stop_rx: oneshot::Receiver<()>,
 }
 
 impl RecordTask {
@@ -133,37 +162,25 @@ impl RecordTask {
         topics: Vec<OwnedKeyExpr>,
         domain: u32,
         ros_distro: String,
+        stop_rx: oneshot::Receiver<()>,
     ) -> Self {
-        let (stop_tx, stop_rx) = oneshot::channel();
         let filename = format!("rosbag2_{}.mcap", Local::now().format("%Y_%m_%d_%H_%M_%S"));
         tracing::debug!("Create a recorded mcap file with name: {filename}");
-        let filename_clone = filename.clone();
-        let handle = tokio::spawn(async move {
-            if let Err(e) = RecordTask::write_mcap(
-                storage_key_exprs,
-                session,
-                path,
-                topics,
-                domain,
-                stop_rx,
-                filename_clone,
-                ros_distro,
-            )
-            .await
-            {
-                tracing::error!("Fail while running the record task: {e}");
-            }
-        });
 
         Self {
-            handle,
-            stop_tx,
+            storage_key_exprs,
+            session,
+            path,
             filename,
+            topics,
+            domain,
+            ros_distro,
+            stop_rx,
         }
     }
 
     async fn create_a_topic_recorder(
-        session: Session,
+        &self,
         keyexpr_info: &KeyExprInfo,
         topic: &String,
         tx: Sender<Sample>,
@@ -197,7 +214,8 @@ impl RecordTask {
                 } else {
                     HistoryConfig::default().detect_late_publishers()
                 };
-                let adv_sub = session
+                let adv_sub = self
+                    .session
                     .declare_subscriber(&key_expr)
                     .subscriber_detection()
                     .query_timeout(Duration::MAX)
@@ -209,7 +227,7 @@ impl RecordTask {
                 }
             } else {
                 tracing::debug!("Create a subscriber for the key expression: {}", key_expr);
-                session.declare_subscriber(&key_expr).advanced()
+                self.session.declare_subscriber(&key_expr).advanced()
             };
             let subscriber = subscriber_builder
             .callback(move |sample| {
@@ -227,7 +245,7 @@ impl RecordTask {
             let key_expr = keformat!(
                 utils::ke_graphcache::formatter(),
                 domain = keyexpr_info.domain,
-                zid = session.id().zid(),
+                zid = self.session.id().zid(),
                 node = NODE_ID,
                 entity = utils::get_entity_id(),
                 entity_kind = "MS",
@@ -244,7 +262,8 @@ impl RecordTask {
                 "Create a liveliness token for the key expression: {}",
                 key_expr
             );
-            let token = session
+            let token = self
+                .session
                 .liveliness()
                 .declare_token(&key_expr)
                 .await
@@ -257,34 +276,29 @@ impl RecordTask {
         Ok(())
     }
 
-    // TODO: We can optimize it later
-    #[allow(clippy::too_many_arguments)]
-    async fn process_hashset_key_exprs(
-        storage_key_exprs: StorageKeyExprs,
-        session: Session,
-        topics: Vec<OwnedKeyExpr>,
-        domain: u32,
+    async fn process_storage_key_exprs(
+        &self,
         tx: Sender<Sample>,
         schemas_map: &mut BTreeMap<String, u16>,
         channels_map: &mut BTreeMap<String, u16>,
         topic_recorder_hashmap: &mut HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)>,
         out: &mut Writer<BufWriter<File>>,
     ) -> Result<()> {
-        for (key_expr, keyexpr_info) in storage_key_exprs.to_vec() {
+        for (key_expr, keyexpr_info) in self.storage_key_exprs.to_vec() {
             // Filter the mismatched domain ID
-            if domain != keyexpr_info.domain {
+            if self.domain != keyexpr_info.domain {
                 tracing::debug!(
-                    "The domain doesn't match ({domain} != {}), skipping...",
+                    "The domain doesn't match ({} != {}), skipping...",
+                    self.domain,
                     keyexpr_info.domain
                 );
                 continue;
             }
 
-            // Transform the topic name from /camera/image_raw to camera/image_raw
-            let original_topic_no_leading = keyexpr_info.original_topic[1..].to_string();
+            // Filter the topic which is not recorded
+            let original_topic_no_leading = keyexpr_info.original_topic[1..].to_string(); // Remove the leading /
             if let Ok(compare_key) = keyexpr::new(&original_topic_no_leading) {
-                // Filter the topic which is not recorded
-                let any_match = topics.iter().any(|t| t.includes(compare_key));
+                let any_match = self.topics.iter().any(|t| t.includes(compare_key));
                 if !any_match {
                     tracing::debug!(
                         "topic {} (key: {}) is not in the recorded list, skipping...",
@@ -306,8 +320,7 @@ impl RecordTask {
                 "Detect a new liveliness token we haven't had yet: {}",
                 key_expr
             );
-            RecordTask::create_a_topic_recorder(
-                session.clone(),
+            self.create_a_topic_recorder(
                 &keyexpr_info,
                 &original_topic_no_leading,
                 tx.clone(),
@@ -319,7 +332,7 @@ impl RecordTask {
             let rostype = utils::dds_type_to_ros_type(&keyexpr_info.rostype);
             let schema_id = match schemas_map.get(&rostype) {
                 Some(id) => *id,
-                None => match registry::get_ros_msg_data(session.clone(), &rostype).await {
+                None => match registry::get_ros_msg_data(self.session.clone(), &rostype).await {
                     Ok(ros_msg_data) => {
                         let id = out.add_schema(&rostype, "ros2msg", ros_msg_data.as_bytes())?;
                         tracing::debug!(
@@ -363,23 +376,12 @@ impl RecordTask {
         Ok(())
     }
 
-    // TODO: We can optimize it later
-    #[allow(clippy::too_many_arguments)]
-    async fn write_mcap(
-        storage_key_exprs: StorageKeyExprs,
-        session: Session,
-        path: String,
-        topics: Vec<OwnedKeyExpr>,
-        domain: u32,
-        mut stop_rx: oneshot::Receiver<()>,
-        filename: String,
-        ros_distro: String,
-    ) -> Result<()> {
-        let fullpath = format!("{}/{}", path, filename);
+    async fn write_mcap(&mut self) -> Result<()> {
+        let fullpath = format!("{}/{}", self.path, self.filename);
         tracing::debug!(
             "Started recording topic '{:?}' on domain {}",
-            topics,
-            domain
+            self.topics,
+            self.domain
         );
         // Create a hashmap to store schema (String => u16)
         let mut schemas_map: BTreeMap<String, u16> = BTreeMap::new();
@@ -387,6 +389,7 @@ impl RecordTask {
         // Create a mpsc unbounded channel to write data
         let mut topic_recorder_hashmap: HashMap<String, (AdvancedSubscriber<()>, LivelinessToken)> =
             HashMap::new();
+        // Channel to receive the sample from subscribers
         let (tx, mut rx) = mpsc::channel(CHANNEL_SIZE);
 
         // MCAP Writer
@@ -398,7 +401,7 @@ impl RecordTask {
 
         // Write the metadata
         // TODO: the metadata should be updated
-        let metadata = utils::BagMetadata::new(&filename, ros_distro)?;
+        let metadata = utils::BagMetadata::new(&self.filename, self.ros_distro.clone())?;
         out.write_metadata(&Metadata {
             name: "rosbag2".to_string(),
             metadata: BTreeMap::from([(
@@ -407,12 +410,8 @@ impl RecordTask {
             )]),
         })?;
 
-        // Process the existing HashSet
-        RecordTask::process_hashset_key_exprs(
-            storage_key_exprs.clone(),
-            session.clone(),
-            topics.clone(),
-            domain,
+        // Process the existing KeyExprs inside the storage
+        self.process_storage_key_exprs(
             tx.clone(),
             &mut schemas_map,
             &mut channels_map,
@@ -422,16 +421,12 @@ impl RecordTask {
         .await?;
 
         loop {
-            let notified_future = storage_key_exprs.notified();
+            let notified_future = self.storage_key_exprs.notified();
             tokio::select! {
-                // Check if the KeyExprs inside HashSet are changed or not
+                // Check if the KeyExprs inside the storage are changed or not
                 _ = notified_future => {
                     tracing::debug!("The liveliness token of the KeyExprs are changed. Process it again.");
-                    RecordTask::process_hashset_key_exprs(
-                        storage_key_exprs.clone(),
-                        session.clone(),
-                        topics.clone(),
-                        domain,
+                    self.process_storage_key_exprs(
                         tx.clone(),
                         &mut schemas_map,
                         &mut channels_map,
@@ -482,7 +477,7 @@ impl RecordTask {
                         tracing::warn!("Something wrong when parsing the topic name: {}", sample.key_expr());
                     }
                 },
-                _ = &mut stop_rx => {
+                _ = &mut self.stop_rx => {
                     tracing::debug!("Stop signal received.");
                     break;
                 }
@@ -506,18 +501,9 @@ impl RecordTask {
         out.finish()?;
         tracing::debug!(
             "Stopped recording topic '{:?}' on domain {}",
-            topics,
-            domain
+            self.topics,
+            self.domain
         );
         Ok(())
-    }
-
-    async fn stop(self) {
-        let _ = self.stop_tx.send(());
-        let _ = self.handle.await;
-    }
-
-    fn is_finished(&self) -> bool {
-        self.handle.is_finished()
     }
 }
