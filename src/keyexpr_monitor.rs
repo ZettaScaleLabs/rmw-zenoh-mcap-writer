@@ -11,7 +11,7 @@
 //   ChenYing Kuo, <cy@zettascale.tech>
 //
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{Arc, RwLock},
 };
 
@@ -27,40 +27,85 @@ use zenoh::{
     sample::SampleKind,
 };
 
+use crate::utils;
+
 kedefine!(
     // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
     pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
 );
 
-pub(crate) struct StorageKeyExprs {
-    hashset_key_exprs: Arc<RwLock<HashSet<OwnedKeyExpr>>>,
+#[derive(Debug, Clone)]
+pub(crate) struct KeyExprInfo {
+    pub(crate) original_topic: String,
+    pub(crate) domain: u32,
+    pub(crate) enclave: String,
+    pub(crate) namespace: String,
+    pub(crate) topic: String,
+    pub(crate) rostype: String,
+    pub(crate) hash: String,
+    pub(crate) qos: String,
+}
+
+pub(crate) struct HashMapKeyExprs {
+    storage_key_exprs: Arc<RwLock<HashMap<OwnedKeyExpr, KeyExprInfo>>>,
     notify: Arc<Notify>,
 }
 
-impl StorageKeyExprs {
+impl HashMapKeyExprs {
     pub(crate) fn new() -> Self {
         Self {
-            hashset_key_exprs: Arc::new(RwLock::new(HashSet::new())),
+            storage_key_exprs: Arc::new(RwLock::new(HashMap::new())),
             notify: Arc::new(Notify::new()),
         }
     }
 
     pub(crate) fn insert(&self, key_expr: OwnedKeyExpr) {
-        self.hashset_key_exprs.write().unwrap().insert(key_expr);
-        self.notify.notify_one();
+        if let Ok(ke) = utils::ke_graphcache::parse(&key_expr) {
+            let domain = if let Ok(domain) = ke.domain().to_string().parse::<u32>() {
+                domain
+            } else {
+                tracing::warn!("Something wrong when parsing the domain: {}", ke.domain());
+                return;
+            };
+
+            // Transform the topic name from % to /, e.g. %camera%image_raw -> /camera/image_raw
+            let original_topic = ke.topic().replace("%", "/").to_string();
+            let keyexpr_info = KeyExprInfo {
+                original_topic,
+                domain,
+                enclave: ke.enclave().to_string(),
+                namespace: ke.namespace().to_string(),
+                topic: ke.topic().to_string(),
+                rostype: ke.rostype().to_string(),
+                hash: ke.hash().to_string(),
+                qos: ke.qos().to_string(),
+            };
+            tracing::trace!("Parse the received liveliness token: keyexpr_info={keyexpr_info:?}",);
+
+            self.storage_key_exprs
+                .write()
+                .unwrap()
+                .insert(key_expr, keyexpr_info);
+            self.notify.notify_one();
+        } else {
+            tracing::warn!(
+                "Something wrong when parsing the liveliness token name: {}",
+                key_expr
+            );
+        }
     }
 
     pub(crate) fn remove(&self, key_expr: &OwnedKeyExpr) {
-        self.hashset_key_exprs.write().unwrap().remove(key_expr);
+        self.storage_key_exprs.write().unwrap().remove(key_expr);
         self.notify.notify_one();
     }
 
-    pub(crate) fn to_vec(&self) -> Vec<OwnedKeyExpr> {
-        self.hashset_key_exprs
+    pub(crate) fn to_vec(&self) -> Vec<(OwnedKeyExpr, KeyExprInfo)> {
+        self.storage_key_exprs
             .read()
             .unwrap()
             .iter()
-            .cloned()
+            .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
@@ -69,18 +114,18 @@ impl StorageKeyExprs {
     }
 }
 
-pub(crate) type HashSetKeyExprs = Arc<StorageKeyExprs>;
+pub(crate) type StorageKeyExprs = Arc<HashMapKeyExprs>;
 
 pub(crate) struct KeyExprMonitor {
     liveliness_subscriber: Option<Subscriber<()>>,
-    hashset_key_exprs: HashSetKeyExprs,
+    storage_key_exprs: StorageKeyExprs,
 }
 
 impl KeyExprMonitor {
     pub(crate) fn new() -> Self {
         Self {
             liveliness_subscriber: None,
-            hashset_key_exprs: Arc::new(StorageKeyExprs::new()),
+            storage_key_exprs: Arc::new(HashMapKeyExprs::new()),
         }
     }
 
@@ -103,7 +148,7 @@ impl KeyExprMonitor {
         )
         .map_err(|e| anyhow!("Unable to format the key expression: {e}"))?;
         tracing::debug!("Subscribing to liveliness key expression: {}", key_expr);
-        let hashset_key_exprs = self.hashset_key_exprs.clone();
+        let storage_key_exprs = self.storage_key_exprs.clone();
         let liveliness_subscriber = session
             .liveliness()
             .declare_subscriber(&key_expr)
@@ -117,10 +162,10 @@ impl KeyExprMonitor {
                 // Update the hashset of key_exprs
                 match sample.kind() {
                     SampleKind::Put => {
-                        hashset_key_exprs.insert(OwnedKeyExpr::from(sample.key_expr().clone()));
+                        storage_key_exprs.insert(OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                     SampleKind::Delete => {
-                        hashset_key_exprs.remove(&OwnedKeyExpr::from(sample.key_expr().clone()));
+                        storage_key_exprs.remove(&OwnedKeyExpr::from(sample.key_expr().clone()));
                     }
                 }
             })
@@ -130,7 +175,7 @@ impl KeyExprMonitor {
         Ok(())
     }
 
-    pub(crate) fn get_hashset_key_exprs(&self) -> HashSetKeyExprs {
-        self.hashset_key_exprs.clone()
+    pub(crate) fn get_hashset_key_exprs(&self) -> StorageKeyExprs {
+        self.storage_key_exprs.clone()
     }
 }

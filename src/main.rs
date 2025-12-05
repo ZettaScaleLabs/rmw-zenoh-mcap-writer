@@ -84,9 +84,9 @@ async fn main() -> Result<()> {
     let ros_distro = registry::get_ros_distro(zsession.clone()).await;
     tracing::debug!("The ROS_DISTRO is {ros_distro}");
 
-    // Create a RecorderHandler
+    // Create a RecorderHandlers
     let mut recorder_handler =
-        recorder::RecorderHandler::new(zsession.clone(), args.output_path().to_string());
+        recorder::RecorderHandlers::new(zsession.clone(), args.output_path().to_string());
 
     // Create a Queryable for the recorder
     let queryable_key_expr = keformat!(ke_command::formatter(), command = "*")

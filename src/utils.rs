@@ -16,6 +16,17 @@ use anyhow::{Result, anyhow};
 use chrono::Duration;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use zenoh::key_expr::format::kedefine;
+
+kedefine!(
+    // The format of ROS topic is Domain/Topic/ROSType/Hash
+    // However, there might be several chunks splitted by `/` in Topic,
+    // so we can't parse the key expression easily.
+    // Instead, we will parse it with a customized function.
+    pub(crate) ke_sub_rostopic: "${domain:*}/${topic:**}/${type_name:*}/${type_hash:*}",
+    // There is no similar issue liveliness token, because `/` is transformed into `%` in the key expression.
+    pub(crate) ke_graphcache: "@ros2_lv/${domain:*}/${zid:*}/${node:*}/${entity:*}/${entity_kind:*}/${enclave:*}/${namespace:*}/${node_name:*}/${topic:*}/${rostype:*}/${hash:*}/${qos:*}",
+);
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct NanoDuration {
@@ -27,7 +38,6 @@ struct StartingTime {
     nanoseconds_since_epoch: u128,
 }
 
-// TODO: Add more fields if necessary
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct BagMetadata {
     version: u32,
@@ -218,4 +228,18 @@ static GLOBAL_COUNTER: Lazy<AtomicU32> = Lazy::new(|| AtomicU32::new(1));
 /// Get a new entity ID by increasing the number
 pub(crate) fn get_entity_id() -> u32 {
     GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+// Add test
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case("std_msgs::msg::dds_::String_", "std_msgs/msg/String"; "String")]
+    fn test_dds_type_to_ros_type(dds_type: &str, ros_type: &str) {
+        let transformed_ros_type = dds_type_to_ros_type(dds_type);
+        assert_eq!(ros_type, transformed_ros_type);
+    }
 }
