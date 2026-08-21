@@ -190,7 +190,9 @@ pub(crate) fn parse_zenoh_qos(zenoh_qos: &str) -> Result<QoSProfile> {
         qos_profile.history = "keep_all".to_string();
     } else {
         qos_profile.history = "keep_last".to_string();
-        qos_profile.depth = Some(subparts[1].parse::<u32>()?);
+        if !subparts[1].is_empty() {
+            qos_profile.depth = Some(subparts[1].parse::<u32>()?);
+        }
     }
     // Deadline
     let subparts = parts[3].split(',').collect::<Vec<&str>>();
